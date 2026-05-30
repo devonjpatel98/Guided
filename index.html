@@ -3,22 +3,28 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
-<title>For you</title>
+<title>for you,</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,300;1,400&family=Italianno&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,300;1,400;1,500&family=Italianno&display=swap" rel="stylesheet">
 <style>
   :root {
-    --bg: #0a0612;
-    --bg-2: #1a0d1f;
-    --cream: #faf3e0;
-    --cream-dim: rgba(250, 243, 224, 0.62);
-    --rose: #e09ba5;
-    --gold: #f6c98a;
-    --accent: #c45b6f;
+    --bg-deep:    #0a070d;
+    --bg-warm:    #14090f;
+    --cream:      #fff5e3;
+    --cream-soft: rgba(255, 245, 227, 0.78);
+    --cream-dim:  rgba(255, 245, 227, 0.48);
+    --cream-quiet:rgba(255, 245, 227, 0.28);
+    --gold:       #f0c889;
+    --gold-deep:  #c89a5c;
+    --rose:       #d8a0a8;
+    --rose-deep:  #a44b58;
+    --safe-top:    env(safe-area-inset-top, 0px);
+    --safe-bottom: env(safe-area-inset-bottom, 0px);
   }
+
   * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
-  html, body { width: 100%; height: 100%; overflow: hidden; background: var(--bg); }
+  html, body { width: 100%; height: 100%; overflow: hidden; background: var(--bg-deep); }
   body {
     font-family: 'Cormorant Garamond', serif;
     color: var(--cream);
@@ -26,314 +32,542 @@
     -webkit-user-select: none;
     touch-action: manipulation;
     background:
-      radial-gradient(ellipse at 50% 30%, rgba(196,91,111,0.18) 0%, transparent 55%),
-      radial-gradient(ellipse at 50% 90%, rgba(246,201,138,0.10) 0%, transparent 60%),
-      var(--bg);
+      radial-gradient(ellipse 80% 60% at 50% 45%, rgba(164, 75, 88, 0.05) 0%, transparent 60%),
+      radial-gradient(ellipse 70% 50% at 50% 95%, rgba(240, 200, 137, 0.03) 0%, transparent 60%),
+      var(--bg-deep);
   }
 
-  /* Three.js canvas fills the screen */
+  /* Three.js canvas */
   #three-canvas {
     position: fixed; inset: 0; z-index: 1;
     width: 100%; height: 100%;
     display: block;
   }
 
-  /* Hidden video element used as input to MediaPipe */
+  /* Hidden video for MediaPipe */
   #video {
-    position: fixed;
-    top: 0; left: 0;
+    position: fixed; top: 0; left: 0;
     width: 1px; height: 1px;
-    opacity: 0;
-    pointer-events: none;
+    opacity: 0; pointer-events: none;
   }
 
-  /* Tiny preview so she knows the camera is alive */
+  /* Small refined preview */
   #preview {
     position: fixed;
-    bottom: 14px; right: 14px;
-    width: 72px; height: 96px;
+    top: calc(var(--safe-top) + 18px); right: 18px;
+    width: 44px; height: 60px;
     object-fit: cover;
-    border-radius: 12px;
-    border: 1px solid rgba(250,243,224,0.18);
+    border-radius: 6px;
+    border: 1px solid rgba(255, 245, 227, 0.14);
     z-index: 6;
     transform: scaleX(-1);
     opacity: 0;
-    transition: opacity 800ms ease;
+    transition: opacity 900ms ease;
     pointer-events: none;
+    filter: brightness(0.7) contrast(0.9);
   }
-  #preview.visible { opacity: 0.55; }
+  #preview.visible { opacity: 0.38; }
 
-  /* Overlay container */
+  /* Subtle screen-edge vignette to add depth */
+  .vignette {
+    position: fixed; inset: 0;
+    z-index: 3;
+    pointer-events: none;
+    background:
+      radial-gradient(ellipse 130% 110% at 50% 50%, transparent 55%, rgba(0, 0, 0, 0.55) 100%);
+  }
+
+  /* Film-grain texture overlay */
+  .grain {
+    position: fixed; inset: 0;
+    z-index: 8;
+    pointer-events: none;
+    opacity: 0.05;
+    mix-blend-mode: overlay;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.95' numOctaves='3'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  }
+
+  /* ────────── Overlay layout ────────── */
   .overlay {
-    position: fixed; inset: 0; z-index: 4;
-    display: flex; flex-direction: column;
-    align-items: center; justify-content: center;
-    padding: 8vh 28px;
-    text-align: center;
+    position: fixed; inset: 0;
+    z-index: 4;
+    display: flex;
+    align-items: stretch;
+    justify-content: center;
+    padding: calc(var(--safe-top) + 56px) 26px calc(var(--safe-bottom) + 40px);
     pointer-events: none;
   }
   .overlay.interactive { pointer-events: auto; }
 
   .panel {
-    max-width: 540px;
+    width: 100%;
+    max-width: 460px;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    align-items: center;
+    text-align: center;
     opacity: 0;
-    transform: translateY(12px);
-    transition: opacity 1200ms ease, transform 1200ms ease;
+    transition: opacity 800ms ease;
   }
-  .panel.show { opacity: 1; transform: translateY(0); }
-  .panel.hide { opacity: 0; transform: translateY(-12px); transition-duration: 800ms; }
+  .panel.show { opacity: 1; }
 
-  h1.display {
-    font-family: 'Italianno', cursive;
-    font-weight: 400;
-    font-size: clamp(54px, 14vw, 120px);
-    line-height: 1;
-    color: var(--cream);
-    letter-spacing: 0.5px;
-    text-shadow: 0 0 30px rgba(246,201,138,0.18);
+  .zone-top, .zone-bottom {
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    flex: 0 0 auto;
   }
-  h2.serif {
-    font-family: 'Cormorant Garamond', serif;
-    font-weight: 300;
-    font-style: italic;
-    font-size: clamp(22px, 5.5vw, 34px);
-    color: var(--cream);
-    line-height: 1.35;
-    letter-spacing: 0.3px;
+  .zone-main {
+    width: 100%;
+    flex: 1 1 auto;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    position: relative;
   }
-  p.body {
-    font-family: 'Cormorant Garamond', serif;
-    font-weight: 400;
-    font-size: clamp(17px, 4.4vw, 22px);
-    color: var(--cream-dim);
-    line-height: 1.55;
-    margin-top: 18px;
-    font-style: italic;
+
+  /* Halo behind main-zone text to protect legibility */
+  .zone-main.halo::before {
+    content: '';
+    position: absolute;
+    inset: -10% -8%;
+    background: radial-gradient(ellipse 70% 50% at center,
+      rgba(10, 7, 13, 0.88) 0%,
+      rgba(10, 7, 13, 0.55) 38%,
+      rgba(10, 7, 13, 0) 75%);
+    z-index: -1;
+    pointer-events: none;
   }
+
+  /* ────────── Staggered reveal ────────── */
+  .reveal {
+    opacity: 0;
+    transform: translateY(10px);
+    transition:
+      opacity 1300ms cubic-bezier(0.16, 1, 0.3, 1),
+      transform 1300ms cubic-bezier(0.16, 1, 0.3, 1);
+  }
+  .panel.show .reveal { opacity: 1; transform: translateY(0); }
+  .panel.show .reveal-1 { transition-delay: 200ms; }
+  .panel.show .reveal-2 { transition-delay: 700ms; }
+  .panel.show .reveal-3 { transition-delay: 1200ms; }
+  .panel.show .reveal-4 { transition-delay: 1700ms; }
+  .panel.show .reveal-5 { transition-delay: 2400ms; }
+
+  /* ────────── Typography ────────── */
+
+  /* Tiny eyebrow label */
   .eyebrow {
     font-family: 'Cormorant Garamond', serif;
     font-weight: 500;
-    font-size: 13px;
-    letter-spacing: 0.34em;
+    font-size: 11px;
+    letter-spacing: 0.5em;
     text-transform: uppercase;
     color: var(--gold);
     opacity: 0.78;
-    margin-bottom: 22px;
+    text-indent: 0.5em; /* compensate for last-letter spacing */
   }
-  .divider {
-    width: 38px; height: 1px;
-    background: linear-gradient(90deg, transparent, var(--gold), transparent);
-    margin: 22px auto;
-    opacity: 0.7;
+  .eyebrow::after {
+    content: '';
+    display: block;
+    width: 22px; height: 1px;
+    background: currentColor;
+    margin: 14px auto 0;
+    opacity: 0.55;
   }
 
-  /* Button */
-  .btn {
-    appearance: none;
-    -webkit-appearance: none;
-    background: transparent;
-    color: var(--cream);
-    border: 1px solid rgba(250,243,224,0.55);
-    padding: 14px 32px;
-    font-family: 'Cormorant Garamond', serif;
-    font-size: 18px;
+  /* Hero script (Italianno) — "for you," */
+  .hero-script {
+    font-family: 'Italianno', cursive;
     font-weight: 400;
-    letter-spacing: 0.28em;
-    text-transform: uppercase;
-    cursor: pointer;
-    border-radius: 1px;
-    margin-top: 32px;
-    transition: all 300ms ease;
-    backdrop-filter: blur(2px);
-  }
-  .btn:hover, .btn:active {
-    background: rgba(250,243,224,0.06);
-    border-color: var(--cream);
-    letter-spacing: 0.34em;
+    font-size: clamp(96px, 26vw, 180px);
+    line-height: 0.92;
+    color: var(--cream);
+    letter-spacing: 0.5px;
+    text-shadow:
+      0 0 50px rgba(255, 245, 227, 0.18),
+      0 0 110px rgba(216, 160, 168, 0.14),
+      0 0 200px rgba(240, 200, 137, 0.08);
   }
 
-  /* Message reveal (Awakening stage) */
+  /* Hero statement (serif, medium) — instructional headlines */
+  .hero-statement {
+    font-family: 'Cormorant Garamond', serif;
+    font-weight: 300;
+    font-size: clamp(30px, 8vw, 44px);
+    line-height: 1.22;
+    color: var(--cream);
+    letter-spacing: 0.2px;
+  }
+  .hero-statement em {
+    font-style: italic;
+    font-weight: 400;
+  }
+
+  /* Ornament rule with center mark */
+  .ornament {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 14px;
+    margin: 36px 0 32px;
+    color: var(--gold);
+    opacity: 0.55;
+  }
+  .ornament .line {
+    width: 36px; height: 1px;
+    background: linear-gradient(90deg, transparent, currentColor 30%, currentColor 70%, transparent);
+  }
+  .ornament .mark {
+    font-family: 'Cormorant Garamond', serif;
+    font-size: 13px;
+    line-height: 1;
+    transform: translateY(-1px);
+  }
+
+  /* Body whisper text */
+  .body-whisper {
+    font-family: 'Cormorant Garamond', serif;
+    font-weight: 300;
+    font-style: italic;
+    font-size: clamp(18px, 4.6vw, 22px);
+    line-height: 1.75;
+    color: var(--cream-soft);
+    letter-spacing: 0.25px;
+    max-width: 320px;
+  }
+  .body-whisper em { font-style: normal; color: var(--cream); }
+
+  /* ────────── Typographic CTA ────────── */
+  .cta {
+    appearance: none; -webkit-appearance: none;
+    background: transparent;
+    border: none;
+    color: var(--cream);
+    cursor: pointer;
+    padding: 16px 28px;
+    display: inline-flex;
+    align-items: baseline;
+    gap: 14px;
+    font-family: 'Cormorant Garamond', serif;
+    font-style: italic;
+    font-weight: 400;
+    font-size: 22px;
+    letter-spacing: 0.04em;
+    position: relative;
+    transition: color 400ms ease;
+  }
+  .cta .arrow {
+    font-style: normal;
+    font-size: 18px;
+    transition: transform 600ms cubic-bezier(0.16, 1, 0.3, 1);
+    display: inline-block;
+  }
+  .cta::before {
+    content: '';
+    position: absolute;
+    left: 28px; right: 28px;
+    bottom: 10px;
+    height: 1px;
+    background: var(--cream);
+    transform-origin: left center;
+    transform: scaleX(0.5);
+    opacity: 0.4;
+    transition: transform 700ms cubic-bezier(0.16, 1, 0.3, 1), opacity 400ms ease;
+  }
+  .cta:hover::before, .cta:active::before {
+    transform: scaleX(1);
+    opacity: 0.9;
+  }
+  .cta:hover .arrow, .cta:active .arrow {
+    transform: translateX(6px);
+  }
+  .cta:hover, .cta:active { color: var(--cream); }
+
+  /* Subtle invitation pulse on idle CTA */
+  @keyframes ctaIdle {
+    0%, 100% { transform: translateX(0); }
+    50% { transform: translateX(3px); }
+  }
+  .panel.show .cta .arrow {
+    animation: ctaIdle 3.4s ease-in-out infinite 3s;
+  }
+
+  /* ────────── Message reveal (Awakening) ────────── */
   .message-reveal {
     position: fixed;
     left: 50%; top: 50%;
     transform: translate(-50%, -50%);
-    width: min(86%, 560px);
+    width: min(82%, 460px);
     text-align: center;
     z-index: 5;
     opacity: 0;
-    transition: opacity 1400ms ease;
+    transition: opacity 1800ms cubic-bezier(0.16, 1, 0.3, 1);
     pointer-events: none;
   }
   .message-reveal.show { opacity: 1; }
+  .message-reveal::before {
+    content: '';
+    position: absolute;
+    inset: -80px -40px;
+    background: radial-gradient(ellipse at center,
+      rgba(10, 7, 13, 0.82) 0%,
+      rgba(10, 7, 13, 0.4) 45%,
+      rgba(10, 7, 13, 0) 75%);
+    z-index: -1;
+    pointer-events: none;
+  }
   .message-reveal .quote {
     font-family: 'Cormorant Garamond', serif;
     font-weight: 300;
     font-style: italic;
-    font-size: clamp(24px, 6.4vw, 38px);
-    line-height: 1.4;
+    font-size: clamp(24px, 6.6vw, 34px);
+    line-height: 1.5;
     color: var(--cream);
-    text-shadow: 0 0 28px rgba(246,201,138,0.22);
+    text-shadow: 0 0 32px rgba(255, 245, 227, 0.18);
+    letter-spacing: 0.2px;
   }
 
-  /* Progress dots for Awakening */
-  .progress-dots {
+  /* Progress — thin vertical ticks */
+  .progress {
     position: fixed;
-    bottom: 36px; left: 50%;
+    bottom: calc(var(--safe-bottom) + 40px);
+    left: 50%;
     transform: translateX(-50%);
-    display: flex; gap: 14px;
     z-index: 5;
+    display: flex;
+    align-items: flex-end;
+    gap: 9px;
     opacity: 0;
-    transition: opacity 800ms ease;
+    transition: opacity 1200ms ease;
   }
-  .progress-dots.show { opacity: 1; }
-  .dot {
-    width: 6px; height: 6px;
-    border-radius: 50%;
-    background: rgba(250,243,224,0.22);
-    transition: all 600ms ease;
+  .progress.show { opacity: 1; }
+  .tick {
+    width: 1px;
+    height: 11px;
+    background: rgba(255, 245, 227, 0.2);
+    transition: all 800ms cubic-bezier(0.16, 1, 0.3, 1);
   }
-  .dot.lit {
+  .tick.lit {
     background: var(--gold);
-    box-shadow: 0 0 12px var(--gold);
-    transform: scale(1.4);
+    height: 18px;
+    box-shadow: 0 0 10px var(--gold), 0 0 22px rgba(240, 200, 137, 0.4);
   }
 
-  /* Hint text (subtle instruction) */
+  /* Top hint label */
   .hint {
     position: fixed;
-    top: 38px; left: 0; right: 0;
-    text-align: center;
+    top: calc(var(--safe-top) + 38px);
+    left: 50%;
+    transform: translateX(-50%);
     z-index: 5;
     font-family: 'Cormorant Garamond', serif;
-    font-style: italic;
-    font-size: 16px;
-    color: var(--cream-dim);
-    letter-spacing: 0.18em;
+    font-weight: 500;
+    font-size: 11px;
+    letter-spacing: 0.5em;
+    text-transform: uppercase;
+    color: var(--gold);
     opacity: 0;
-    transition: opacity 900ms ease;
+    transition: opacity 1400ms ease;
     pointer-events: none;
-    padding: 0 24px;
+    text-indent: 0.5em;
+    white-space: nowrap;
   }
-  .hint.show { opacity: 1; }
+  .hint.show { opacity: 0.68; }
+  .hint::after {
+    content: '';
+    display: block;
+    width: 22px; height: 1px;
+    background: currentColor;
+    margin: 12px auto 0;
+    opacity: 0.55;
+  }
 
-  /* Question stage */
-  .question {
-    position: fixed;
-    left: 50%; top: 22%;
-    transform: translate(-50%, 0);
-    width: min(90%, 600px);
-    text-align: center;
+  /* ────────── Question stage ────────── */
+  .question-stage {
+    position: fixed; inset: 0;
     z-index: 5;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: space-between;
+    padding: calc(var(--safe-top) + 70px) 28px calc(var(--safe-bottom) + 48px);
+    pointer-events: none;
+    text-align: center;
+  }
+  .question-stage .her-name {
+    font-family: 'Italianno', cursive;
+    font-size: clamp(64px, 16vw, 110px);
+    line-height: 1;
+    color: var(--cream);
     opacity: 0;
-    transition: opacity 2200ms ease;
+    transform: translateY(10px);
+    transition: opacity 2400ms cubic-bezier(0.16,1,0.3,1) 400ms,
+                transform 2400ms cubic-bezier(0.16,1,0.3,1) 400ms;
+    text-shadow: 0 0 40px rgba(216, 160, 168, 0.35);
+    letter-spacing: 0.4px;
+  }
+  .question-stage.show .her-name { opacity: 1; transform: translateY(0); }
+
+  .question-stage .ask-wrap {
+    flex: 1;
+    display: flex; align-items: center; justify-content: center;
+    width: 100%;
+    position: relative;
+  }
+  .question-stage .ask-wrap::before {
+    content: '';
+    position: absolute;
+    inset: -30px -20px;
+    background: radial-gradient(ellipse 60% 50% at center,
+      rgba(10, 7, 13, 0.78) 0%, transparent 75%);
+    z-index: -1;
+  }
+  .question-stage .the-ask {
+    font-family: 'Cormorant Garamond', serif;
+    font-weight: 300;
+    font-style: italic;
+    font-size: clamp(28px, 7.4vw, 40px);
+    line-height: 1.35;
+    color: var(--cream);
+    max-width: 360px;
+    opacity: 0;
+    transform: translateY(10px);
+    transition: opacity 2600ms cubic-bezier(0.16,1,0.3,1) 1600ms,
+                transform 2600ms cubic-bezier(0.16,1,0.3,1) 1600ms;
+    letter-spacing: 0.2px;
+  }
+  .question-stage.show .the-ask { opacity: 1; transform: translateY(0); }
+
+  .question-stage .answer-hint {
+    font-family: 'Cormorant Garamond', serif;
+    font-weight: 500;
+    font-size: 11px;
+    letter-spacing: 0.5em;
+    text-transform: uppercase;
+    color: var(--gold);
+    opacity: 0;
+    transition: opacity 2200ms ease 3000ms;
+    text-indent: 0.5em;
+  }
+  .question-stage.show .answer-hint { opacity: 0.7; }
+  .question-stage .answer-hint::before,
+  .question-stage .answer-hint::after {
+    content: '';
+    display: inline-block;
+    width: 22px; height: 1px;
+    background: currentColor;
+    vertical-align: middle;
+    margin: 0 14px;
+    opacity: 0.55;
+  }
+  @keyframes hintBreathe {
+    0%, 100% { opacity: 0.5; }
+    50% { opacity: 0.85; }
+  }
+  .question-stage.show .answer-hint {
+    animation: hintBreathe 3s ease-in-out infinite 4s;
+  }
+
+  /* ────────── Celebration ────────── */
+  .celebration {
+    position: fixed; inset: 0;
+    z-index: 5;
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    padding: 0 28px;
+    text-align: center;
     pointer-events: none;
   }
-  .question.show { opacity: 1; }
-  .question .name {
+  .celebration .yes {
     font-family: 'Italianno', cursive;
-    font-size: clamp(46px, 11vw, 78px);
+    font-size: clamp(160px, 44vw, 320px);
+    line-height: 1;
     color: var(--cream);
-    margin-bottom: 8px;
-    text-shadow: 0 0 30px rgba(224,155,165,0.4);
+    opacity: 0;
+    transform: scale(0.82);
+    transition:
+      opacity 2400ms cubic-bezier(0.16, 1, 0.3, 1),
+      transform 3000ms cubic-bezier(0.16, 1, 0.3, 1);
+    text-shadow:
+      0 0 70px rgba(255, 245, 227, 0.4),
+      0 0 140px rgba(216, 160, 168, 0.3),
+      0 0 240px rgba(240, 200, 137, 0.18);
+    letter-spacing: 0.5px;
   }
-  .question .ask {
+  .celebration.show .yes { opacity: 1; transform: scale(1); }
+  .celebration .closing {
+    margin-top: 28px;
     font-family: 'Cormorant Garamond', serif;
     font-style: italic;
     font-weight: 300;
-    font-size: clamp(26px, 6.8vw, 40px);
-    line-height: 1.35;
+    font-size: clamp(20px, 5.4vw, 26px);
     color: var(--cream);
-  }
-  .question .sub {
-    margin-top: 22px;
-    font-family: 'Cormorant Garamond', serif;
-    font-size: 15px;
-    letter-spacing: 0.34em;
-    text-transform: uppercase;
-    color: var(--gold);
-    opacity: 0.85;
-  }
-
-  /* Celebration */
-  .celebration {
-    position: fixed;
-    left: 50%; top: 50%;
-    transform: translate(-50%, -50%);
-    text-align: center;
-    z-index: 5;
     opacity: 0;
-    transition: opacity 2200ms ease;
-    pointer-events: none;
+    transition: opacity 2400ms ease 1800ms;
+    letter-spacing: 0.4px;
+    max-width: 320px;
+    line-height: 1.5;
   }
-  .celebration.show { opacity: 1; }
-  .celebration .yes {
-    font-family: 'Italianno', cursive;
-    font-size: clamp(80px, 22vw, 200px);
-    color: var(--cream);
-    line-height: 1;
-    text-shadow: 0 0 50px rgba(246,201,138,0.5), 0 0 100px rgba(224,155,165,0.3);
-  }
-  .celebration .sub {
-    margin-top: 12px;
-    font-family: 'Cormorant Garamond', serif;
-    font-style: italic;
-    font-size: clamp(20px, 5vw, 28px);
-    color: var(--cream);
-  }
+  .celebration.show .closing { opacity: 0.85; }
 
-  /* Loading state */
+  /* ────────── Loading ────────── */
   .loading {
     position: fixed; inset: 0;
     display: flex; align-items: center; justify-content: center;
     z-index: 10;
-    background: var(--bg);
+    background: var(--bg-deep);
     transition: opacity 700ms ease;
   }
   .loading.hide { opacity: 0; pointer-events: none; }
   .loading-text {
     font-family: 'Cormorant Garamond', serif;
     font-style: italic;
-    font-size: 18px;
+    font-size: 14px;
     color: var(--cream-dim);
-    letter-spacing: 0.2em;
+    letter-spacing: 0.5em;
+    text-transform: uppercase;
+    text-indent: 0.5em;
   }
   .loading-text::after {
-    content: '';
+    content: '·';
     display: inline-block;
-    width: 6px;
-    animation: dots 1.4s infinite;
+    width: 24px;
+    text-align: left;
+    margin-left: 6px;
+    animation: dots 1.8s infinite;
   }
   @keyframes dots {
-    0%, 20% { content: ''; }
-    40% { content: '.'; }
-    60% { content: '..'; }
-    80%, 100% { content: '...'; }
+    0%   { content: '·'; }
+    33%  { content: '· ·'; }
+    66%  { content: '· · ·'; }
+    100% { content: '·'; }
   }
 
-  /* Error panel */
-  .error {
-    background: rgba(10,6,18,0.85);
-    border: 1px solid rgba(196,91,111,0.5);
-    padding: 24px 28px;
-    border-radius: 4px;
-    max-width: 420px;
+  /* ────────── Error ────────── */
+  .error-content {
+    max-width: 340px;
+    text-align: center;
   }
-
-  /* Pulse animation for the "ready" prompt */
-  @keyframes softPulse {
-    0%, 100% { opacity: 0.7; }
-    50% { opacity: 1; }
+  .error-content .label {
+    font-family: 'Cormorant Garamond', serif;
+    font-weight: 500;
+    font-size: 11px;
+    letter-spacing: 0.5em;
+    text-transform: uppercase;
+    color: var(--rose-deep);
+    margin-bottom: 24px;
+    text-indent: 0.5em;
   }
-  .pulse { animation: softPulse 2.4s ease-in-out infinite; }
-
-  /* Subtle grain overlay */
-  .grain {
-    position: fixed; inset: 0;
-    z-index: 7;
-    pointer-events: none;
-    opacity: 0.06;
-    mix-blend-mode: overlay;
-    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='3' /%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  .error-content .body {
+    font-family: 'Cormorant Garamond', serif;
+    font-style: italic;
+    font-size: 19px;
+    line-height: 1.6;
+    color: var(--cream);
   }
 </style>
 </head>
@@ -342,40 +576,80 @@
 <canvas id="three-canvas"></canvas>
 <video id="video" playsinline muted autoplay></video>
 <video id="preview" playsinline muted autoplay></video>
+<div class="vignette"></div>
 <div class="grain"></div>
 
 <!-- Loading -->
 <div id="loading" class="loading">
-  <div class="loading-text">Tuning the stars</div>
+  <div class="loading-text">A moment</div>
 </div>
 
 <!-- Stage 0: Welcome -->
 <div id="stage-welcome" class="overlay interactive">
   <div class="panel">
-    <div class="eyebrow">A moment, just for you</div>
-    <h1 class="display">For you</h1>
-    <div class="divider"></div>
-    <p class="body">Find somewhere quiet. Take a breath.<br/>When you're ready, begin.</p>
-    <button id="btn-begin" class="btn">Begin</button>
+    <div class="zone-top">
+      <div class="reveal reveal-1 eyebrow">an invitation</div>
+    </div>
+    <div class="zone-main halo">
+      <h1 class="reveal reveal-2 hero-script">for you,</h1>
+      <div class="reveal reveal-3 ornament">
+        <span class="line"></span>
+        <span class="mark">❦</span>
+        <span class="line"></span>
+      </div>
+      <p class="reveal reveal-4 body-whisper">
+        Find somewhere quiet.<br/>
+        Take a breath.<br/>
+        When you're ready —<br/>
+        <em>begin.</em>
+      </p>
+    </div>
+    <div class="zone-bottom">
+      <button id="btn-begin" class="reveal reveal-5 cta">
+        <span>begin</span>
+        <span class="arrow">→</span>
+      </button>
+    </div>
   </div>
 </div>
 
-<!-- Stage 1: Setup / camera permission -->
+<!-- Stage 1: Setup -->
 <div id="stage-setup" class="overlay interactive" style="display:none">
   <div class="panel">
-    <div class="eyebrow">A small request</div>
-    <h2 class="serif">Prop your phone up<br/>where you can stand back a step or two.</h2>
-    <p class="body">I'll need to see your hands.<br/>Nothing is recorded — only your hands, only this moment.</p>
-    <button id="btn-camera" class="btn">Allow camera</button>
+    <div class="zone-top">
+      <div class="reveal reveal-1 eyebrow">a small thing</div>
+    </div>
+    <div class="zone-main halo">
+      <h2 class="reveal reveal-2 hero-statement">
+        Prop your phone up<br/>
+        where you can <em>step back</em>
+      </h2>
+      <div class="reveal reveal-3 ornament">
+        <span class="line"></span><span class="mark">❦</span><span class="line"></span>
+      </div>
+      <p class="reveal reveal-4 body-whisper">
+        I'll need to see your hands.<br/>
+        Nothing is recorded —<br/>
+        <em>only this moment, only us.</em>
+      </p>
+    </div>
+    <div class="zone-bottom">
+      <button id="btn-camera" class="reveal reveal-5 cta">
+        <span>allow camera</span>
+        <span class="arrow">→</span>
+      </button>
+    </div>
   </div>
 </div>
 
-<!-- Stage 1b: Camera denied error -->
+<!-- Stage 1b: Error -->
 <div id="stage-error" class="overlay interactive" style="display:none">
   <div class="panel">
-    <div class="error">
-      <h2 class="serif" style="font-size: 22px;">Camera was blocked</h2>
-      <p class="body" style="font-size: 17px;">Please grant camera access in your browser settings, then refresh the page.</p>
+    <div class="zone-main">
+      <div class="error-content">
+        <div class="label">camera was blocked</div>
+        <div class="body">Grant camera access in your browser settings, then refresh the page.</div>
+      </div>
     </div>
   </div>
 </div>
@@ -383,36 +657,51 @@
 <!-- Stage 2: Calibration -->
 <div id="stage-calibrate" class="overlay" style="display:none">
   <div class="panel">
-    <h2 class="serif pulse">Reach out with your hands</h2>
-    <p class="body">Let the light find your fingertips.</p>
+    <div class="zone-top">
+      <div class="reveal reveal-1 eyebrow">begin</div>
+    </div>
+    <div class="zone-main halo">
+      <h2 class="reveal reveal-2 hero-statement">
+        Reach out.
+      </h2>
+      <div class="reveal reveal-3 ornament">
+        <span class="line"></span><span class="mark">❦</span><span class="line"></span>
+      </div>
+      <p class="reveal reveal-4 body-whisper">
+        let the light <em>find your hands.</em>
+      </p>
+    </div>
+    <div class="zone-bottom"></div>
   </div>
 </div>
 
-<!-- Stage 3: Awakening (message reveal) -->
+<!-- Stage 3: Awakening -->
 <div id="stage-awakening" style="display:none">
-  <div id="hint-awakening" class="hint">pinch your fingers · gather the light</div>
+  <div id="hint-awakening" class="hint">pinch to gather</div>
   <div id="message-reveal" class="message-reveal">
     <div class="quote" id="message-text"></div>
   </div>
-  <div id="progress-dots" class="progress-dots"></div>
+  <div id="progress" class="progress"></div>
 </div>
 
-<!-- Stage 4: Heart formation -->
+<!-- Stage 4: Heart -->
 <div id="stage-heart" style="display:none">
-  <div class="hint show" id="hint-heart">bring your hands together</div>
+  <div id="hint-heart" class="hint show">bring your hands together</div>
 </div>
 
-<!-- Stage 5: The Question -->
-<div id="stage-question" class="question">
-  <div class="name" id="q-name"></div>
-  <div class="ask" id="q-ask"></div>
-  <div class="sub pulse">open both hands to say yes</div>
+<!-- Stage 5: Question -->
+<div id="stage-question" class="question-stage">
+  <div class="her-name" id="q-name"></div>
+  <div class="ask-wrap">
+    <div class="the-ask" id="q-ask"></div>
+  </div>
+  <div class="answer-hint">open both hands</div>
 </div>
 
 <!-- Stage 6: Celebration -->
 <div id="stage-celebration" class="celebration">
   <div class="yes">yes.</div>
-  <div class="sub" id="c-sub"></div>
+  <div class="closing" id="c-sub"></div>
 </div>
 
 <script type="importmap">
@@ -427,42 +716,42 @@
 import * as THREE from 'three';
 import { HandLandmarker, FilesetResolver } from 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.18/vision_bundle.mjs';
 
-// ════════════════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════════
 //  CONFIGURATION — customize this for her ♥
-// ════════════════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════════
 
 const CONFIG = {
   // Her name (appears at the question)
   herName: "Sweetheart",
 
   // The big question
-  question: "will you be mine, officially?",
+  question: "will you be mine,\nofficially?",
 
   // Closing line after she says yes
-  closing: "thank you for being you",
+  closing: "thank you for being you.",
 
-  // Messages revealed one by one as she pinches during the Awakening stage.
-  // Add as many as you'd like — each one takes one pinch to reveal.
+  // Messages revealed one by one as she pinches during the Awakening.
+  // Each pinch reveals one. Add as many as you want.
   messages: [
-    "you arrived like a sunrise i didn't see coming",
-    "and i found myself counting the hours till the next time",
-    "every small thing you do — i notice. i keep them.",
-    "you make ordinary days feel like a soft place to land",
-    "and i don't want to imagine a single one without you in it",
+    "you arrived like a sunrise\ni didn't see coming",
+    "and i found myself counting\nthe hours till the next time",
+    "every small thing you do —\ni notice. i keep them.",
+    "you make ordinary days\nfeel like a soft place to land",
+    "and i can't imagine a single one\nwithout you in it",
   ],
 
   // Tunables
-  particleCount: 6000,
-  pinchThreshold: 0.45,       // ratio of (thumb-index distance) to (hand size). Lower = tighter pinch
-  handsTogetherThreshold: 0.32, // normalized distance between two wrists to count as "together"
-  openHandThreshold: 0.62,    // how spread fingers need to be
-  heartHoldFrames: 90,        // ~1.5s at 60fps to advance from heart → question
-  yesHoldFrames: 90,          // ~1.5s of open hands to trigger yes
+  particleCount: 5200,
+  pinchThreshold: 0.45,         // ratio of (thumb-index distance) to hand size. Lower = tighter pinch
+  handsTogetherThreshold: 1.6,  // world-units between two wrists to count as "together"
+  openHandThreshold: 0.62,
+  heartHoldFrames: 90,          // ~1.5s @ 60fps
+  yesHoldFrames: 90,
 };
 
-// ════════════════════════════════════════════════════════════════════
-//  Three.js setup
-// ════════════════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════════
+//  Three.js scene
+// ═══════════════════════════════════════════════════════════════════
 
 const canvas = document.getElementById('three-canvas');
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
@@ -471,15 +760,11 @@ renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.setClearColor(0x000000, 0);
 
 const scene = new THREE.Scene();
-
-// Perspective camera — hand positions live at z = 0
 const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 100);
 camera.position.set(0, 0, 6);
 camera.lookAt(0, 0, 0);
 
-// Hand-coord → world bounds
 function worldBounds() {
-  // half-width and half-height at z=0 given camera fov + distance
   const dist = camera.position.z;
   const vFov = (camera.fov * Math.PI) / 180;
   const h = 2 * Math.tan(vFov / 2) * dist;
@@ -487,13 +772,11 @@ function worldBounds() {
   return { w, h };
 }
 
-// Convert MediaPipe normalized {x, y, z?} to world coords
 function handToWorld(lm) {
   const { w, h } = worldBounds();
-  // x is mirrored (we mirror the video for natural movement)
-  const x = (1 - lm.x - 0.5) * w;
+  const x = (0.5 - lm.x) * w;  // mirrored for natural feel
   const y = (0.5 - lm.y) * h;
-  const z = -(lm.z || 0) * 4; // depth from camera; subtle
+  const z = -(lm.z || 0) * 4;
   return new THREE.Vector3(x, y, z);
 }
 
@@ -503,9 +786,9 @@ window.addEventListener('resize', () => {
   camera.updateProjectionMatrix();
 });
 
-// ════════════════════════════════════════════════════════════════════
-//  Particle texture (soft glow disc, generated in canvas)
-// ════════════════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════════
+//  Particle texture (soft pinpoint glow)
+// ═══════════════════════════════════════════════════════════════════
 
 function makeGlowTexture() {
   const size = 128;
@@ -513,10 +796,11 @@ function makeGlowTexture() {
   c.width = c.height = size;
   const ctx = c.getContext('2d');
   const g = ctx.createRadialGradient(size/2, size/2, 0, size/2, size/2, size/2);
-  g.addColorStop(0.00, 'rgba(255,255,255,1)');
-  g.addColorStop(0.18, 'rgba(255,240,210,0.85)');
-  g.addColorStop(0.45, 'rgba(246,201,138,0.35)');
-  g.addColorStop(1.00, 'rgba(196,91,111,0)');
+  g.addColorStop(0.00, 'rgba(255, 255, 255, 1.0)');
+  g.addColorStop(0.08, 'rgba(255, 250, 230, 0.95)');
+  g.addColorStop(0.22, 'rgba(245, 210, 154, 0.40)');
+  g.addColorStop(0.55, 'rgba(216, 160, 168, 0.10)');
+  g.addColorStop(1.00, 'rgba(0, 0, 0, 0)');
   ctx.fillStyle = g;
   ctx.fillRect(0, 0, size, size);
   const tex = new THREE.CanvasTexture(c);
@@ -524,49 +808,84 @@ function makeGlowTexture() {
   return tex;
 }
 
-// ════════════════════════════════════════════════════════════════════
-//  Particle system
-// ════════════════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════════
+//  Particle system — sparse atmospheric distribution
+// ═══════════════════════════════════════════════════════════════════
 
 const N = CONFIG.particleCount;
-const positions = new Float32Array(N * 3);
+const positions  = new Float32Array(N * 3);
 const velocities = new Float32Array(N * 3);
-const targets    = new Float32Array(N * 3);   // home / target positions
+const targets    = new Float32Array(N * 3);
 const colors     = new Float32Array(N * 3);
 const sizes      = new Float32Array(N);
-const alive      = new Float32Array(N);       // 1 = visible, 0 = collected (hidden)
+const alive      = new Float32Array(N);
 
 const { w: WW, h: HH } = worldBounds();
 
-// Initial scatter: ambient field
+// Distribute uniformly across the full viewport with depth layers for parallax.
+// Slight density falloff in the center to keep the welcome text readable.
+function seedAmbient() {
+  for (let i = 0; i < N; i++) {
+    // Depth bucket: far (background bokeh), mid, near (sharp foreground)
+    const depthRoll = Math.random();
+    let z;
+    if (depthRoll < 0.30)      z = -2.0 + Math.random() * 1.0;   // far
+    else if (depthRoll < 0.85) z = -1.0 + Math.random() * 1.5;   // mid
+    else                       z =  0.5 + Math.random() * 1.2;   // near
+
+    // Position with center density falloff
+    let x, y;
+    let attempt = 0;
+    do {
+      x = (Math.random() - 0.5) * WW * 1.35;
+      y = (Math.random() - 0.5) * HH * 1.20;
+      attempt++;
+      // Reject ~50% of particles that land in the central "text zone" (textually quiet zone)
+      const inCenter = Math.abs(x) < WW * 0.32 && Math.abs(y) < HH * 0.22;
+      if (!inCenter || Math.random() < 0.45) break;
+    } while (attempt < 4);
+
+    positions[i*3+0] = x;
+    positions[i*3+1] = y;
+    positions[i*3+2] = z;
+    targets[i*3+0]   = x + (Math.random() - 0.5) * 0.7;
+    targets[i*3+1]   = y + (Math.random() - 0.5) * 0.7;
+    targets[i*3+2]   = z;
+    velocities[i*3+0] = (Math.random() - 0.5) * 0.004;
+    velocities[i*3+1] = (Math.random() - 0.5) * 0.004;
+    velocities[i*3+2] = (Math.random() - 0.5) * 0.002;
+
+    // Color palette — cream-dominant, champagne and rose accents
+    const r = Math.random();
+    let col;
+    if      (r < 0.55) col = [1.00, 0.96, 0.88];    // cream
+    else if (r < 0.80) col = [0.96, 0.82, 0.60];    // champagne
+    else if (r < 0.95) col = [0.85, 0.63, 0.66];    // soft rose
+    else               col = [0.72, 0.36, 0.42];    // deep rose (rare)
+
+    // Dim distant particles (atmospheric depth)
+    const depthDim = z < -1 ? 0.55 : (z < 0 ? 0.85 : 1.0);
+    colors[i*3+0] = col[0] * depthDim;
+    colors[i*3+1] = col[1] * depthDim;
+    colors[i*3+2] = col[2] * depthDim;
+
+    // Size variation: bokeh + dust
+    const sz = Math.random();
+    if      (sz < 0.12) sizes[i] = 0.20 + Math.random() * 0.10;  // large soft bokeh
+    else if (sz < 0.68) sizes[i] = 0.07 + Math.random() * 0.05;  // medium
+    else                sizes[i] = 0.025 + Math.random() * 0.025; // tiny dust
+
+    alive[i] = 1;
+  }
+}
+seedAmbient();
+
+// Pre-allocate stable per-particle heart slots so the heart shape doesn't jitter
+const heartSlot = new Float32Array(N * 3); // t, r, zJitter
 for (let i = 0; i < N; i++) {
-  const r = 3.2 + Math.random() * 1.6;
-  const a = Math.random() * Math.PI * 2;
-  const yJ = (Math.random() - 0.5) * 3.4;
-  positions[i*3+0] = Math.cos(a) * r * 0.55;
-  positions[i*3+1] = yJ;
-  positions[i*3+2] = (Math.random() - 0.5) * 2 - 1;
-  targets[i*3+0] = positions[i*3+0];
-  targets[i*3+1] = positions[i*3+1];
-  targets[i*3+2] = positions[i*3+2];
-  velocities[i*3+0] = (Math.random() - 0.5) * 0.01;
-  velocities[i*3+1] = (Math.random() - 0.5) * 0.01;
-  velocities[i*3+2] = (Math.random() - 0.5) * 0.005;
-
-  // Warm palette per particle
-  const palette = [
-    [1.00, 0.95, 0.88], // cream
-    [0.96, 0.79, 0.54], // gold
-    [0.88, 0.61, 0.65], // rose
-    [0.77, 0.36, 0.43], // deep rose
-  ];
-  const pc = palette[Math.floor(Math.random() * palette.length)];
-  colors[i*3+0] = pc[0];
-  colors[i*3+1] = pc[1];
-  colors[i*3+2] = pc[2];
-
-  sizes[i] = 0.08 + Math.random() * 0.18;
-  alive[i] = 1;
+  heartSlot[i*3+0] = Math.random() * Math.PI * 2;
+  heartSlot[i*3+1] = Math.sqrt(Math.random());
+  heartSlot[i*3+2] = (Math.random() - 0.5) * 0.4;
 }
 
 const particleGeom = new THREE.BufferGeometry();
@@ -596,8 +915,8 @@ const particleMat = new THREE.ShaderMaterial({
       vColor = color;
       vAlive = aAlive;
       vec4 mv = modelViewMatrix * vec4(position, 1.0);
-      // Subtle twinkle
-      float tw = 0.85 + 0.35 * sin(uTime * 2.2 + position.x * 4.0 + position.y * 3.0);
+      // Twinkle, slow and individual per particle
+      float tw = 0.80 + 0.30 * sin(uTime * 1.6 + position.x * 3.0 + position.y * 2.5);
       gl_PointSize = aSize * tw * 220.0 * uPixelRatio / -mv.z;
       gl_Position = projectionMatrix * mv;
     }
@@ -609,7 +928,8 @@ const particleMat = new THREE.ShaderMaterial({
     void main() {
       if (vAlive < 0.5) discard;
       vec4 tex = texture2D(uTex, gl_PointCoord);
-      gl_FragColor = vec4(vColor * tex.rgb * 1.2, tex.a);
+      // Softer additive output
+      gl_FragColor = vec4(vColor * tex.rgb * 0.95, tex.a);
     }
   `,
 });
@@ -617,27 +937,28 @@ const particleMat = new THREE.ShaderMaterial({
 const points = new THREE.Points(particleGeom, particleMat);
 scene.add(points);
 
-// ════════════════════════════════════════════════════════════════════
-//  Heart shape generator (parametric)
-// ════════════════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════════
+//  Heart geometry
+// ═══════════════════════════════════════════════════════════════════
 
 function heartPoint(t, scale = 1) {
-  // parametric heart, normalized to ~unit
   const x = 16 * Math.pow(Math.sin(t), 3);
   const y = 13 * Math.cos(t) - 5 * Math.cos(2*t) - 2 * Math.cos(3*t) - Math.cos(4*t);
   return { x: (x / 17) * scale, y: (y / 17) * scale };
 }
 
-// Pre-allocate per-particle heart slot params so the heart is stable across frames
-// (without this, every frame randomizes targets and particles never converge)
-const heartSlot = new Float32Array(N * 3); // t, r, zJitter
-for (let i = 0; i < N; i++) {
-  heartSlot[i*3+0] = Math.random() * Math.PI * 2;       // t
-  heartSlot[i*3+1] = Math.sqrt(Math.random());          // r (sqrt for uniform area fill)
-  heartSlot[i*3+2] = (Math.random() - 0.5) * 0.4;       // z jitter
+function setHeartTargets(center, scale) {
+  for (let i = 0; i < N; i++) {
+    const t = heartSlot[i*3+0];
+    const r = heartSlot[i*3+1];
+    const zJ = heartSlot[i*3+2];
+    const o = heartPoint(t, scale);
+    targets[i*3+0] = o.x * r + center.x;
+    targets[i*3+1] = o.y * r + center.y;
+    targets[i*3+2] = zJ + center.z;
+  }
 }
 
-// Used for celebration-rising hearts (random positions are fine here)
 function generateHeartPositions(count, scale, center) {
   const pts = [];
   for (let i = 0; i < count; i++) {
@@ -653,9 +974,9 @@ function generateHeartPositions(count, scale, center) {
   return pts;
 }
 
-// ════════════════════════════════════════════════════════════════════
-//  Hand tracking (MediaPipe Tasks Vision)
-// ════════════════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════════
+//  MediaPipe Hand Landmarker
+// ═══════════════════════════════════════════════════════════════════
 
 const video = document.getElementById('video');
 const preview = document.getElementById('preview');
@@ -684,11 +1005,7 @@ async function initMediaPipe() {
 
 async function startCamera() {
   const stream = await navigator.mediaDevices.getUserMedia({
-    video: {
-      facingMode: 'user',
-      width:  { ideal: 1280 },
-      height: { ideal: 720 },
-    },
+    video: { facingMode: 'user', width: { ideal: 1280 }, height: { ideal: 720 } },
     audio: false,
   });
   video.srcObject = stream;
@@ -698,68 +1015,39 @@ async function startCamera() {
   await preview.play().catch(() => {});
 }
 
-// ════════════════════════════════════════════════════════════════════
-//  Gesture detection helpers
-// ════════════════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════════
+//  Gesture helpers
+// ═══════════════════════════════════════════════════════════════════
 
-// MediaPipe hand landmark indices:
-//   0 wrist
-//   4 thumb tip, 8 index tip, 12 middle tip, 16 ring tip, 20 pinky tip
-//   5 index MCP, 9 middle MCP, 13 ring MCP, 17 pinky MCP
-
-function dist2D(a, b) {
-  const dx = a.x - b.x, dy = a.y - b.y;
-  return Math.hypot(dx, dy);
-}
-
-function handSize(lms) {
-  // distance from wrist to middle-finger MCP — a stable scale reference
-  return dist2D(lms[0], lms[9]) + 1e-6;
-}
-
-function pinchRatio(lms) {
-  return dist2D(lms[4], lms[8]) / handSize(lms);
-}
-
-function isPinching(lms) {
-  return pinchRatio(lms) < CONFIG.pinchThreshold;
-}
-
+function dist2D(a, b) { return Math.hypot(a.x - b.x, a.y - b.y); }
+function handSize(lms) { return dist2D(lms[0], lms[9]) + 1e-6; }
+function pinchRatio(lms) { return dist2D(lms[4], lms[8]) / handSize(lms); }
+function isPinching(lms) { return pinchRatio(lms) < CONFIG.pinchThreshold; }
 function isOpenHand(lms) {
-  // All fingertips far from wrist, normalized by hand size
   const h = handSize(lms);
   const tips = [8, 12, 16, 20];
   let extended = 0;
-  for (const tip of tips) {
-    if (dist2D(lms[0], lms[tip]) / h > 1.7) extended++;
-  }
-  // thumb separate (lateral)
+  for (const tip of tips) if (dist2D(lms[0], lms[tip]) / h > 1.7) extended++;
   const thumbOut = dist2D(lms[4], lms[5]) / h > CONFIG.openHandThreshold;
   return extended >= 3 && thumbOut;
 }
 
-// ════════════════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════════
 //  Stage state machine
-// ════════════════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════════
 
 const Stage = {
-  WELCOME: 'welcome',
-  SETUP: 'setup',
-  CALIBRATE: 'calibrate',
-  AWAKENING: 'awakening',
-  HEART: 'heart',
-  QUESTION: 'question',
+  WELCOME: 'welcome', SETUP: 'setup', CALIBRATE: 'calibrate',
+  AWAKENING: 'awakening', HEART: 'heart', QUESTION: 'question',
   CELEBRATION: 'celebration',
 };
 
 let stage = Stage.WELCOME;
 
-// Stage-specific runtime state
 const state = {
   calibrateHoldFrames: 0,
   pinchActive: false,
-  messageIndex: -1,                          // -1 = none shown; 0..N-1 = current
-  collectedThisPinch: false,
+  messageIndex: -1,
   heartHoldFrames: 0,
   heartScaleCurrent: 0.0,
   questionShownAt: 0,
@@ -768,71 +1056,66 @@ const state = {
   lastBeat: -1,
 };
 
-// ────────────────────────────────────────────────────────────────────
-//  Stage transitions
-// ────────────────────────────────────────────────────────────────────
-
-function setStage(next) {
-  stage = next;
-  console.log('[stage]', next);
-
-  // hide all overlay stages
-  const ids = ['stage-welcome','stage-setup','stage-calibrate','stage-awakening','stage-error'];
-  for (const id of ids) {
-    const el = document.getElementById(id);
-    if (el) el.style.display = 'none';
-  }
-
-  // Most show/hide handled below per-stage
-  switch (next) {
-    case Stage.CALIBRATE:
-      showStage('stage-calibrate');
-      break;
-    case Stage.AWAKENING:
-      document.getElementById('stage-awakening').style.display = 'block';
-      document.getElementById('hint-awakening').classList.add('show');
-      document.getElementById('progress-dots').classList.add('show');
-      // populate dots
-      renderDots();
-      break;
-    case Stage.HEART:
-      document.getElementById('hint-awakening').classList.remove('show');
-      document.getElementById('progress-dots').classList.remove('show');
-      document.getElementById('message-reveal').classList.remove('show');
-      document.getElementById('stage-heart').style.display = 'block';
-      // bring back any particles she collected so the heart is whole
-      reviveAllParticles();
-      // re-assign targets so particles begin drifting back to ambient
-      reseedAmbientTargets();
-      break;
-    case Stage.QUESTION:
-      document.getElementById('stage-heart').style.display = 'none';
-      const q = document.getElementById('stage-question');
-      document.getElementById('q-name').textContent = CONFIG.herName + ',';
-      document.getElementById('q-ask').textContent = CONFIG.question;
-      q.classList.add('show');
-      state.questionShownAt = performance.now();
-      break;
-    case Stage.CELEBRATION:
-      document.getElementById('stage-question').classList.remove('show');
-      const c = document.getElementById('stage-celebration');
-      document.getElementById('c-sub').textContent = CONFIG.closing;
-      c.classList.add('show');
-      state.burstStartedAt = performance.now();
-      triggerCelebrationBurst();
-      break;
-  }
-}
-
 function showStage(id) {
   const el = document.getElementById(id);
   el.style.display = 'flex';
   const panel = el.querySelector('.panel');
   if (panel) {
     panel.classList.remove('show');
-    // force reflow + show
     void panel.offsetWidth;
     panel.classList.add('show');
+  }
+}
+
+function hideOverlayStages() {
+  const ids = ['stage-welcome','stage-setup','stage-calibrate','stage-awakening','stage-error'];
+  for (const id of ids) {
+    const el = document.getElementById(id);
+    if (el) el.style.display = 'none';
+  }
+}
+
+function setStage(next) {
+  stage = next;
+  console.log('[stage]', next);
+  hideOverlayStages();
+
+  switch (next) {
+    case Stage.CALIBRATE:
+      showStage('stage-calibrate');
+      break;
+
+    case Stage.AWAKENING:
+      document.getElementById('stage-awakening').style.display = 'block';
+      document.getElementById('hint-awakening').classList.add('show');
+      document.getElementById('progress').classList.add('show');
+      renderTicks();
+      break;
+
+    case Stage.HEART:
+      document.getElementById('hint-awakening').classList.remove('show');
+      document.getElementById('progress').classList.remove('show');
+      document.getElementById('message-reveal').classList.remove('show');
+      document.getElementById('stage-heart').style.display = 'block';
+      reviveAllParticles();
+      reseedAmbientTargets();
+      break;
+
+    case Stage.QUESTION:
+      document.getElementById('stage-heart').style.display = 'none';
+      document.getElementById('q-name').textContent = CONFIG.herName + ',';
+      document.getElementById('q-ask').innerHTML = CONFIG.question.replace(/\n/g, '<br/>');
+      document.getElementById('stage-question').classList.add('show');
+      state.questionShownAt = performance.now();
+      break;
+
+    case Stage.CELEBRATION:
+      document.getElementById('stage-question').classList.remove('show');
+      document.getElementById('c-sub').textContent = CONFIG.closing;
+      document.getElementById('stage-celebration').classList.add('show');
+      state.burstStartedAt = performance.now();
+      triggerCelebrationBurst();
+      break;
   }
 }
 
@@ -847,7 +1130,6 @@ document.getElementById('btn-begin').addEventListener('click', () => {
 document.getElementById('btn-camera').addEventListener('click', async () => {
   const loading = document.getElementById('loading');
   loading.classList.remove('hide');
-  document.getElementById('loading').querySelector('.loading-text').textContent = 'Tuning the stars';
   try {
     await startCamera();
     await initMediaPipe();
@@ -858,20 +1140,20 @@ document.getElementById('btn-camera').addEventListener('click', async () => {
     console.error(err);
     loading.classList.add('hide');
     document.getElementById('stage-setup').style.display = 'none';
-    document.getElementById('stage-error').style.display = 'flex';
+    showStage('stage-error');
   }
 });
 
-// ════════════════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════════
 //  Awakening helpers
-// ════════════════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════════
 
-function renderDots() {
-  const wrap = document.getElementById('progress-dots');
+function renderTicks() {
+  const wrap = document.getElementById('progress');
   wrap.innerHTML = '';
   for (let i = 0; i < CONFIG.messages.length; i++) {
     const d = document.createElement('div');
-    d.className = 'dot' + (i <= state.messageIndex ? ' lit' : '');
+    d.className = 'tick' + (i <= state.messageIndex ? ' lit' : '');
     wrap.appendChild(d);
   }
 }
@@ -879,31 +1161,26 @@ function renderDots() {
 function showMessage(idx) {
   const m = document.getElementById('message-reveal');
   const t = document.getElementById('message-text');
-  // fade out, swap, fade in
   m.classList.remove('show');
   setTimeout(() => {
-    t.textContent = CONFIG.messages[idx];
+    t.innerHTML = CONFIG.messages[idx].replace(/\n/g, '<br/>');
     m.classList.add('show');
-  }, 400);
+  }, 450);
 }
 
-// Pull particles in toward a center, hiding them (collected feel)
 function collectNearPoint(centerWorld, radius) {
   let collected = 0;
   for (let i = 0; i < N; i++) {
     if (alive[i] < 0.5) continue;
-    const dx = positions[i*3] - centerWorld.x;
+    const dx = positions[i*3]   - centerWorld.x;
     const dy = positions[i*3+1] - centerWorld.y;
     const dz = positions[i*3+2] - centerWorld.z;
     const d2 = dx*dx + dy*dy + dz*dz;
     if (d2 < radius * radius) {
-      // pull toward center fast; fade out
       targets[i*3]   = centerWorld.x;
       targets[i*3+1] = centerWorld.y;
       targets[i*3+2] = centerWorld.z;
-      // mark for fade
-      sizes[i] *= 1.6;
-      // schedule death after a brief moment
+      sizes[i] *= 1.5;
       setTimeout(() => { alive[i] = 0; particleGeom.attributes.aAlive.needsUpdate = true; }, 380);
       collected++;
     }
@@ -913,100 +1190,73 @@ function collectNearPoint(centerWorld, radius) {
 }
 
 function reseedAmbientTargets() {
-  // For any alive particles, give them gentle drifting targets
+  const { w: WW, h: HH } = worldBounds();
   for (let i = 0; i < N; i++) {
     if (alive[i] < 0.5) continue;
-    const r = 2.6 + Math.random() * 1.4;
-    const a = Math.random() * Math.PI * 2;
-    targets[i*3]   = Math.cos(a) * r * 0.55;
-    targets[i*3+1] = (Math.random() - 0.5) * 3.0;
-    targets[i*3+2] = (Math.random() - 0.5) * 2 - 1;
+    targets[i*3]   = (Math.random() - 0.5) * WW * 1.3;
+    targets[i*3+1] = (Math.random() - 0.5) * HH * 1.15;
+    // keep z bucket as-is (don't reassign depth)
   }
 }
 
-// Resurrect all particles for heart formation
 function reviveAllParticles() {
   for (let i = 0; i < N; i++) {
     alive[i] = 1;
-    sizes[i] = 0.08 + Math.random() * 0.18;
+    // restore a reasonable size; preserves whatever bucket they were in roughly
+    sizes[i] = 0.07 + Math.random() * 0.08;
   }
   particleGeom.attributes.aAlive.needsUpdate = true;
   particleGeom.attributes.aSize.needsUpdate = true;
 }
 
-// Assign heart-shape targets using stable per-particle slots
-function setHeartTargets(center, scale) {
-  for (let i = 0; i < N; i++) {
-    const t = heartSlot[i*3+0];
-    const r = heartSlot[i*3+1];
-    const zJ = heartSlot[i*3+2];
-    const o = heartPoint(t, scale);
-    targets[i*3+0] = o.x * r + center.x;
-    targets[i*3+1] = o.y * r + center.y;
-    targets[i*3+2] = zJ + center.z;
-  }
-}
-
-// Celebration burst — outward velocity
 function triggerCelebrationBurst() {
   reviveAllParticles();
   for (let i = 0; i < N; i++) {
-    // current position becomes burst origin
     const dir = new THREE.Vector3(
       (Math.random() - 0.5),
-      (Math.random() - 0.5) + 0.3,
+      (Math.random() - 0.5) + 0.25,
       (Math.random() - 0.5) * 0.4
     ).normalize();
     const speed = 0.04 + Math.random() * 0.10;
     velocities[i*3]   = dir.x * speed;
     velocities[i*3+1] = dir.y * speed;
     velocities[i*3+2] = dir.z * speed;
-    // targets become far away
     targets[i*3]   = positions[i*3]   + dir.x * 8;
     targets[i*3+1] = positions[i*3+1] + dir.y * 8;
     targets[i*3+2] = positions[i*3+2] + dir.z * 4;
-    // boost size briefly
-    sizes[i] = 0.14 + Math.random() * 0.22;
+    sizes[i] = 0.14 + Math.random() * 0.20;
   }
   particleGeom.attributes.aSize.needsUpdate = true;
 }
 
-// ════════════════════════════════════════════════════════════════════
-//  Per-frame logic by stage
-// ════════════════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════════
+//  Hand world coords
+// ═══════════════════════════════════════════════════════════════════
 
-const hands = []; // current frame hand worlds
-
+const hands = [];
 function updateHandsWorld() {
   hands.length = 0;
   if (!handResults || !handResults.landmarks) return;
   for (const lms of handResults.landmarks) {
-    const worldLms = lms.map(handToWorld);
-    hands.push({ lms, worldLms });
+    hands.push({ lms, worldLms: lms.map(handToWorld) });
   }
 }
 
 function applyHandForces(strength = 0.12) {
-  // Make particles drift toward fingertip targets — graceful, not jittery
   if (hands.length === 0) return;
   const fingertipIdx = [4, 8, 12, 16, 20];
   const fingertips = [];
-  for (const h of hands) {
-    for (const idx of fingertipIdx) fingertips.push(h.worldLms[idx]);
-  }
-  if (fingertips.length === 0) return;
+  for (const h of hands) for (const idx of fingertipIdx) fingertips.push(h.worldLms[idx]);
 
   for (let i = 0; i < N; i++) {
     if (alive[i] < 0.5) continue;
-    // Find nearest fingertip
-    let best = fingertips[0], bestD2 = Infinity;
     const px = positions[i*3], py = positions[i*3+1], pz = positions[i*3+2];
+    let bestD2 = Infinity, best = fingertips[0];
     for (const ft of fingertips) {
       const dx = ft.x - px, dy = ft.y - py, dz = ft.z - pz;
       const d2 = dx*dx + dy*dy + dz*dz;
       if (d2 < bestD2) { bestD2 = d2; best = ft; }
     }
-    // Gentle pull within radius
     if (bestD2 < 4.0) {
       const dx = best.x - px, dy = best.y - py, dz = best.z - pz;
       const d = Math.sqrt(bestD2) + 1e-3;
@@ -1019,28 +1269,18 @@ function applyHandForces(strength = 0.12) {
 }
 
 function integrateParticles(dt) {
-  // velocity toward target + damping + slight noise
   const homeStrength = (stage === Stage.HEART || stage === Stage.QUESTION) ? 0.06 : 0.018;
   const damping = (stage === Stage.CELEBRATION) ? 0.992 : 0.94;
 
   for (let i = 0; i < N; i++) {
     if (alive[i] < 0.5) continue;
     const ix = i*3, iy = ix+1, iz = ix+2;
-
-    // pull toward target
-    const tx = targets[ix] - positions[ix];
-    const ty = targets[iy] - positions[iy];
-    const tz = targets[iz] - positions[iz];
-    velocities[ix] += tx * homeStrength * dt;
-    velocities[iy] += ty * homeStrength * dt;
-    velocities[iz] += tz * homeStrength * dt;
-
-    // damping
+    velocities[ix] += (targets[ix] - positions[ix]) * homeStrength * dt;
+    velocities[iy] += (targets[iy] - positions[iy]) * homeStrength * dt;
+    velocities[iz] += (targets[iz] - positions[iz]) * homeStrength * dt;
     velocities[ix] *= damping;
     velocities[iy] *= damping;
     velocities[iz] *= damping;
-
-    // integrate
     positions[ix] += velocities[ix];
     positions[iy] += velocities[iy];
     positions[iz] += velocities[iz];
@@ -1048,36 +1288,31 @@ function integrateParticles(dt) {
   particleGeom.attributes.position.needsUpdate = true;
 }
 
-// ════════════════════════════════════════════════════════════════════
-//  Stage logic
-// ════════════════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════════
+//  Per-stage logic
+// ═══════════════════════════════════════════════════════════════════
 
 function logicCalibrate() {
-  // need 2 hands visible for ~1.2s
   if (hands.length >= 1) state.calibrateHoldFrames++;
   else state.calibrateHoldFrames = Math.max(0, state.calibrateHoldFrames - 2);
 
   applyHandForces(0.18);
 
   if (state.calibrateHoldFrames > 75) {
-    // hide calibrate panel
     const panel = document.querySelector('#stage-calibrate .panel');
-    if (panel) panel.classList.add('hide');
+    if (panel) panel.style.opacity = '0';
     setTimeout(() => setStage(Stage.AWAKENING), 800);
-    state.calibrateHoldFrames = -9999; // prevent re-trigger
+    state.calibrateHoldFrames = -9999;
   }
 }
 
 function logicAwakening() {
   applyHandForces(0.10);
 
-  // Detect pinch on any hand — edge trigger
-  let anyPinch = false;
-  let pinchCenter = null;
+  let anyPinch = false, pinchCenter = null;
   for (const h of hands) {
     if (isPinching(h.lms)) {
       anyPinch = true;
-      // pinch center = midpoint of thumb tip and index tip in world space
       const a = h.worldLms[4], b = h.worldLms[8];
       pinchCenter = new THREE.Vector3((a.x+b.x)/2, (a.y+b.y)/2, (a.z+b.z)/2);
       break;
@@ -1085,20 +1320,16 @@ function logicAwakening() {
   }
 
   if (anyPinch && pinchCenter && !state.pinchActive) {
-    // edge: pinch began
     state.pinchActive = true;
-    // collect nearby particles
     collectNearPoint(pinchCenter, 0.9);
-    // advance message
     state.messageIndex = Math.min(state.messageIndex + 1, CONFIG.messages.length - 1);
     showMessage(state.messageIndex);
-    renderDots();
+    renderTicks();
 
-    // After last message, give a beat then advance
     if (state.messageIndex >= CONFIG.messages.length - 1) {
       setTimeout(() => {
         if (stage === Stage.AWAKENING) setStage(Stage.HEART);
-      }, 4200);
+      }, 4600);
     }
   } else if (!anyPinch) {
     state.pinchActive = false;
@@ -1106,26 +1337,17 @@ function logicAwakening() {
 }
 
 function logicHeart() {
-  if (hands.length < 2) {
-    // Only one hand — particles drift back to ambient
-    return;
-  }
+  if (hands.length < 2) return;
   const w1 = hands[0].worldLms[0];
   const w2 = hands[1].worldLms[0];
   const mid = new THREE.Vector3((w1.x+w2.x)/2, (w1.y+w2.y)/2, (w1.z+w2.z)/2);
   const sep = w1.distanceTo(w2);
 
-  // Heart scale grows as hands come closer
-  // when sep is large (~3), scale small; when sep is small (~0.6), scale large
   const targetScale = Math.max(0.15, 1.4 - sep * 0.4);
   state.heartScaleCurrent += (targetScale - state.heartScaleCurrent) * 0.08;
-
   setHeartTargets(mid, state.heartScaleCurrent);
 
-  // Track "hands close" hold
-  // Normalized comparison: sep in world space — translate threshold
-  // Using world units: threshold ~ 1.6
-  if (sep < 1.6) state.heartHoldFrames++;
+  if (sep < CONFIG.handsTogetherThreshold) state.heartHoldFrames++;
   else state.heartHoldFrames = Math.max(0, state.heartHoldFrames - 1);
 
   if (state.heartHoldFrames > CONFIG.heartHoldFrames) {
@@ -1135,16 +1357,11 @@ function logicHeart() {
 }
 
 function logicQuestion() {
-  // Keep heart pulsing — adjust scale gently with breathing
   const t = (performance.now() - state.questionShownAt) / 1000;
   const breath = 0.85 + 0.08 * Math.sin(t * 1.8);
-
-  // Heart is centered slightly below the question text
   const center = new THREE.Vector3(0, -0.6, 0);
-  const scale = 1.1 * breath;
-  setHeartTargets(center, scale);
+  setHeartTargets(center, 1.1 * breath);
 
-  // YES detection: both hands open for sustained frames
   let bothOpen = false;
   if (hands.length >= 2) {
     bothOpen = isOpenHand(hands[0].lms) && isOpenHand(hands[1].lms);
@@ -1159,14 +1376,10 @@ function logicQuestion() {
 }
 
 function logicCelebration() {
-  // After burst, periodically reform into rising hearts
   const elapsed = (performance.now() - state.burstStartedAt) / 1000;
-
-  // Every ~4s, send up a new heart-shaped wave from below
   const beat = Math.floor(elapsed / 4);
   if (state.lastBeat !== beat) {
     state.lastBeat = beat;
-    // re-target a subset to a small heart that rises
     const cx = (Math.random() - 0.5) * 2.5;
     const cy = -2.2;
     const startCenter = new THREE.Vector3(cx, cy, (Math.random() - 0.5) * 0.5);
@@ -1176,7 +1389,7 @@ function logicCelebration() {
       const idx = Math.floor(Math.random() * N);
       alive[idx] = 1;
       targets[idx*3]   = pts[i].x;
-      targets[idx*3+1] = pts[i].y + 4.5; // they'll rise toward this
+      targets[idx*3+1] = pts[i].y + 4.5;
       targets[idx*3+2] = pts[i].z;
       velocities[idx*3+1] += 0.02;
     }
@@ -1184,32 +1397,25 @@ function logicCelebration() {
   }
 }
 
-// ════════════════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════════
 //  Main loop
-// ════════════════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════════
 
 let last = performance.now();
 function loop() {
   requestAnimationFrame(loop);
-
   const now = performance.now();
   const dt = Math.min(0.05, (now - last) / 1000);
   last = now;
 
   particleMat.uniforms.uTime.value = now * 0.001;
 
-  // Run hand detection if we have a video frame
   if (handLandmarker && video.readyState >= 2 && video.currentTime !== lastVideoTime) {
     lastVideoTime = video.currentTime;
-    try {
-      handResults = handLandmarker.detectForVideo(video, now);
-    } catch (e) {
-      // ignore transient errors
-    }
+    try { handResults = handLandmarker.detectForVideo(video, now); } catch (e) {}
     updateHandsWorld();
   }
 
-  // Per-stage logic
   switch (stage) {
     case Stage.CALIBRATE:    logicCalibrate(); break;
     case Stage.AWAKENING:    logicAwakening(); break;
@@ -1218,17 +1424,12 @@ function loop() {
     case Stage.CELEBRATION:  logicCelebration(); break;
   }
 
-  integrateParticles(dt * 60); // normalize dt-scale
-
+  integrateParticles(dt * 60);
   renderer.render(scene, camera);
 }
-
 loop();
 
-// hide loading once script is up (no camera yet)
-setTimeout(() => {
-  document.getElementById('loading').classList.add('hide');
-}, 300);
+setTimeout(() => { document.getElementById('loading').classList.add('hide'); }, 300);
 
 </script>
 </body>
