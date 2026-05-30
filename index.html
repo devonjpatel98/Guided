@@ -668,11 +668,11 @@
   <div class="panel">
     <div class="zone-top"></div>
     <div class="zone-main halo">
-      <h1 class="reveal reveal-1 hero">before i ask you<br/>something —</h1>
+      <h1 class="reveal reveal-1 hero">i made you<br/>a thing.</h1>
       <div class="reveal reveal-2 rule"></div>
       <p class="reveal reveal-3 body-whisper">
-        find somewhere quiet.<br/>
-        take a minute.
+        it'll take three minutes.<br/>
+        you'll need your hands.
       </p>
     </div>
     <div class="zone-bottom">
@@ -690,14 +690,13 @@
     <div class="zone-top"></div>
     <div class="zone-main halo">
       <h2 class="reveal reveal-1 hero-statement">
-        Step back from your phone.<br/>
-        Prop it where it can see<br/>
-        your hands.
+        prop your phone up.<br/>
+        step back a bit.
       </h2>
       <div class="reveal reveal-2 rule"></div>
       <p class="reveal reveal-3 body-whisper">
-        Nothing is recorded.<br/>
-        Only this moment.
+        i'm not recording you.<br/>
+        i just need to see your hands.
       </p>
     </div>
     <div class="zone-bottom">
@@ -727,11 +726,11 @@
     <div class="zone-top"></div>
     <div class="zone-main halo">
       <h2 class="reveal reveal-1 hero-statement">
-        Reach out.
+        wave hello.
       </h2>
       <div class="reveal reveal-2 rule"></div>
       <p class="reveal reveal-3 body-whisper">
-        Show me your hands.
+        either hand works.
       </p>
     </div>
     <div class="zone-bottom"></div>
@@ -790,20 +789,21 @@ const CONFIG = {
   // Her name (displayed quietly above the question — replace this)
   herName: "[her name]",
 
-  // The big question
-  question: "will you be my girlfriend?",
+  // The big question — short and direct to land after the buildup
+  question: "be my girlfriend?",
 
   // Closing line after she says yes
-  closing: "okay then.",
+  closing: "okay. that's that.",
 
   // Reflection messages — auto-advance during the Awakening stage.
-  // Replace these with specific, grounded lines for her.
+  // These reference the dynamic between you two without naming it.
   // Each message displays for ~6 seconds. A pinch skips ahead.
   messages: [
-    "we've been good together.",
-    "the easy days. the hard ones too.",
-    "i don't want to keep this loose.",
-    "i want it on purpose.",
+    "okay. quick speech.",
+    "you notice things i'd never think to mention.",
+    "i live in my head. you keep pulling me out of it.",
+    "we shouldn't fit this well. we do anyway.",
+    "this is the longest text you'll ever get from me.",
   ],
 
   // Tunables
@@ -812,7 +812,7 @@ const CONFIG = {
   handsTogetherThreshold: 1.6,
   heartHoldFrames: 90,          // ~1.5s @ 60fps
   yesHoldFrames: 60,            // ~1s of confident open-hand detection
-  messageDwellMs: 6000,         // how long each reflection message stays on screen
+  messageDwellMs: 5500,         // how long each reflection message stays on screen
 };
 
 // ═══════════════════════════════════════════════════════════════════
