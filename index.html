@@ -1889,6 +1889,7 @@ function collectPieceAndAdvance(atPos, caption) {
   const sc = ctx.stageScratch;
   if (sc.solved) return;
   sc.solved = true;
+  setHint('');                         // this puzzle's hint is done
 
   const filled = ctx.pieces.length + 1;
   ctx.pieces.push({ index: filled - 1 });
@@ -1910,7 +1911,7 @@ function collectPieceAndAdvance(atPos, caption) {
   }});
 
   if (caption) showCaption(caption);
-  setTimeout(() => advanceStage(), 1500);
+  setTimeout(() => advanceStage(), 1900);
 }
 
 // ── Hub ─────────────────────────────────────────────────────────────
@@ -1926,7 +1927,13 @@ function gotoStage(desc) {
   physicsMode = desc.physics || 'ambient';
   stage = 'puzzle';
   console.log('[stage]', desc.id);
+  hideCaption();                       // clear any leftover centered caption
   setHint(desc.hint || '', desc.hintDelayMs ?? CONFIG.hintDelayMs);
+  // Progress + inventory are visible from the first puzzle onward.
+  if (desc.kind === 'puzzle') {
+    renderProgress(ctx.pieces.length);
+    renderInventory(ctx.pieces.length);
+  }
   if (desc.enter) desc.enter(ctx);
 }
 
@@ -2250,13 +2257,15 @@ const placeStage = {
 // A — Assembly: drag the wooden pieces (lying flat, word-side up) into the
 // row of frame pads; the assembled tiles spell the ask → question landing.
 const assemblyStage = {
-  id: 'assembly', kind: 'assembly', physics: 'ambient', hint: CONFIG.assembly.hint,
+  id: 'assembly', kind: 'assembly', physics: 'ambient', hint: '',
   enter() {
     clearPuzzleGroup();
     document.getElementById('stage-puzzle').style.display = 'none';
     document.getElementById('stage-assembly').style.display = 'block';
-    document.getElementById('assembly-hint').textContent = CONFIG.assembly.hint;
-    setTimeout(() => document.getElementById('assembly-hint').classList.add('show'), CONFIG.hintDelayMs);
+    const ah = document.getElementById('assembly-hint');
+    ah.classList.remove('show');
+    ah.textContent = CONFIG.assembly.hint;
+    ctx.stageScratch.hintTO = setTimeout(() => ah.classList.add('show'), CONFIG.hintDelayMs);
 
     const sc = ctx.stageScratch;
     const words = CONFIG.ask.replace(/\n/g, ' ').split(/\s+/).filter(Boolean);
@@ -2334,6 +2343,7 @@ const assemblyStage = {
     }
   },
   exit() {
+    if (ctx.stageScratch.hintTO) clearTimeout(ctx.stageScratch.hintTO);
     document.getElementById('assembly-leadin').classList.remove('show');
     document.getElementById('assembly-hint').classList.remove('show');
     document.getElementById('stage-assembly').style.display = 'none';
@@ -2383,6 +2393,7 @@ document.getElementById('btn-camera').addEventListener('click', async () => {
     document.getElementById('preview-frame').classList.add('visible');
     stage = 'calibrate';
     calibrateHoldFrames = 0;
+    hideOverlayStages();              // hide welcome/setup so they don't linger
     showStage('stage-calibrate');
   } catch (err) {
     console.error(err);
