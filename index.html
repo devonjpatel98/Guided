@@ -902,15 +902,15 @@ const CONFIG = {
   rotateTolRad: 0.32,     // ~18° alignment tolerance for the dial
 
   // ── Per-stage content (generic; works out of the box) ─────────────
-  stack:    { count: 3, hint: "stack the blocks." },
-  cut:      { hint: "swipe across to cut it open." },
-  rotate:   { hint: "turn your hand to line up the mark." },
-  place:    { count: 3, hint: "drop each shape into its socket." },
+  stack:    { count: 3, hint: "pinch a block, set it on the stack.", done: "nice and steady." },
+  cut:      { hint: "swipe across to cut it open.",                  done: "there's something inside." },
+  rotate:   { hint: "turn your hand to aim the mark.",               done: "click." },
+  place:    { count: 3, hint: "drop each shape on its pad.",         done: "everything in its place." },
   assembly: { hint: "fit the pieces into the frame." },
   pieceCount: 4,          // number of puzzle stages = pieces collected
 
   // ── Engine ────────────────────────────────────────────────────────
-  particleCount: 3000,
+  particleCount: 1500,    // sparse warm dust motes (also used by the finale)
   pinchThreshold: 0.45,
   yesHoldFrames: 60,      // ~1s of confident open-hand "yes" detection
 
@@ -924,19 +924,55 @@ try {
 } catch (e) {}
 
 // ═══════════════════════════════════════════════════════════════════
-//  Three.js scene
+//  Three.js scene — warm lamp-lit tabletop
 // ═══════════════════════════════════════════════════════════════════
 
 const canvas = document.getElementById('three-canvas');
-const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: false });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 renderer.setSize(window.innerWidth, window.innerHeight);
-renderer.setClearColor(0x000000, 0);
+renderer.setClearColor(0x130d08, 1);
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.15;
 
 const scene = new THREE.Scene();
-const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 100);
-camera.position.set(0, 0, 6);
-camera.lookAt(0, 0, 0);
+scene.fog = new THREE.Fog(0x130d08, 11, 30);
+
+const camera = new THREE.PerspectiveCamera(46, window.innerWidth / window.innerHeight, 0.1, 100);
+// Look down at the desk surface from slightly above and in front.
+camera.position.set(0, 5.4, 7.4);
+camera.lookAt(0, 0.1, -0.6);
+
+const TABLE_Y = 0;   // the desk surface; objects rest on it
+
+// Warm lighting rig (DirectionalLight intensities are distance-independent,
+// so they read consistently regardless of three's lighting mode).
+const keyLight = new THREE.DirectionalLight(0xffe2b0, 2.7);
+keyLight.position.set(-5.5, 9.5, 5.0);
+keyLight.castShadow = true;
+keyLight.shadow.mapSize.set(2048, 2048);
+keyLight.shadow.camera.near = 0.5;
+keyLight.shadow.camera.far = 32;
+keyLight.shadow.camera.left = -10;
+keyLight.shadow.camera.right = 10;
+keyLight.shadow.camera.top = 10;
+keyLight.shadow.camera.bottom = -10;
+keyLight.shadow.bias = -0.0004;
+keyLight.shadow.radius = 4;
+scene.add(keyLight);
+scene.add(keyLight.target);
+keyLight.target.position.set(0, 0, -0.5);
+
+// A warm "desk lamp" glow from the right adds a second highlight.
+const lampLight = new THREE.PointLight(0xffb466, 26, 28, 2);
+lampLight.position.set(5.0, 4.2, 3.2);
+scene.add(lampLight);
+
+const hemiLight = new THREE.HemisphereLight(0xffe8cf, 0x271a0d, 0.55);
+scene.add(hemiLight);
+scene.add(new THREE.AmbientLight(0xffffff, 0.16));
 
 function worldBounds() {
   const dist = camera.position.z;
@@ -952,6 +988,19 @@ function handToWorld(lm) {
   const y = (0.5 - lm.y) * h;
   const z = -(lm.z || 0) * 4;
   return new THREE.Vector3(x, y, z);
+}
+
+// Raycast a normalized hand landmark through the camera onto the desk plane.
+// This keeps grab/placement accurate despite the downward camera tilt.
+const _ray = new THREE.Raycaster();
+const _tablePlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -TABLE_Y);
+const _ndc = new THREE.Vector2();
+function handToTable(lm) {
+  _ndc.set((0.5 - lm.x) * 2, (0.5 - lm.y) * 2); // mirror x; screen-up = +y
+  _ray.setFromCamera(_ndc, camera);
+  const out = new THREE.Vector3();
+  if (!_ray.ray.intersectPlane(_tablePlane, out)) out.set(0, TABLE_Y, 0);
+  return out;
 }
 
 window.addEventListener('resize', () => {
@@ -1139,155 +1188,214 @@ function updateTweens(now) {
 }
 
 // ═══════════════════════════════════════════════════════════════════
-//  3D puzzle object layer (meshes live on the WORK_Z plane)
-//  No lights: MeshBasic cream faces + gold edge lines to match the
-//  glowy dark/cream/gold aesthetic and stay cheap alongside particles.
+//  3D puzzle object layer — carved wood + brass on a lamp-lit desk
 // ═══════════════════════════════════════════════════════════════════
-
-const WORK_Z = 0;                       // working plane = particle plane (handToWorld x/y exact here)
-const COL_CREAM = 0xf5ede0;
-const COL_GOLD  = 0xd4a866;
 
 const puzzleGroup = new THREE.Group();
 scene.add(puzzleGroup);
 
-// A solid = faint translucent face + bright gold wireframe edges, wrapped in
-// a Group so callers position/rotate the whole object and we can fade it out.
-function makeSolid(geom, opts = {}) {
+// ── Procedural wood + brass materials (cached) ──────────────────────
+function makeWoodTexture(base, grain, reps = 1) {
+  const c = document.createElement('canvas');
+  c.width = c.height = 256;
+  const x = c.getContext('2d');
+  x.fillStyle = base; x.fillRect(0, 0, 256, 256);
+  for (let i = 0; i < 80; i++) {
+    const yy = Math.random() * 256;
+    x.globalAlpha = 0.04 + Math.random() * 0.12;
+    x.strokeStyle = grain;
+    x.lineWidth = 0.5 + Math.random() * 1.8;
+    x.beginPath();
+    for (let xx = 0; xx <= 256; xx += 14) {
+      const wobble = Math.sin(xx * 0.05 + yy * 0.09) * 3 + (Math.random() - 0.5) * 2;
+      if (xx === 0) x.moveTo(xx, yy + wobble); else x.lineTo(xx, yy + wobble);
+    }
+    x.stroke();
+  }
+  x.globalAlpha = 1;
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  t.repeat.set(reps, reps);
+  return t;
+}
+
+const WOOD = {
+  walnut: new THREE.MeshStandardMaterial({ map: makeWoodTexture('#5a3b22', '#36210f'), roughness: 0.72, metalness: 0.05 }),
+  oak:    new THREE.MeshStandardMaterial({ map: makeWoodTexture('#7d5731', '#553a1d'), roughness: 0.68, metalness: 0.05 }),
+};
+const BRASS = new THREE.MeshStandardMaterial({ color: 0xc8a24a, metalness: 0.92, roughness: 0.3 });
+const CREAM_INLAY = new THREE.MeshStandardMaterial({ color: 0xf0e4cf, roughness: 0.5, metalness: 0.0, emissive: 0x140d05, emissiveIntensity: 0.25 });
+
+// Desk surface + warm room backdrop
+const tableMat = new THREE.MeshStandardMaterial({ map: makeWoodTexture('#3a2614', '#22130a', 5), roughness: 0.85, metalness: 0.04 });
+const table = new THREE.Mesh(new THREE.PlaneGeometry(80, 80), tableMat);
+table.rotation.x = -Math.PI / 2;
+table.position.y = TABLE_Y - 0.02;
+table.receiveShadow = true;
+scene.add(table);
+
+function makeRoomBackdrop() {
+  const c = document.createElement('canvas');
+  c.width = c.height = 256;
+  const x = c.getContext('2d');
+  const g = x.createLinearGradient(0, 0, 0, 256);
+  g.addColorStop(0, '#180f08'); g.addColorStop(0.6, '#271a0e'); g.addColorStop(1, '#3a2614');
+  x.fillStyle = g; x.fillRect(0, 0, 256, 256);
+  const rg = x.createRadialGradient(196, 64, 8, 196, 64, 170);
+  rg.addColorStop(0, 'rgba(255,184,104,0.40)'); rg.addColorStop(1, 'rgba(255,184,104,0)');
+  x.fillStyle = rg; x.fillRect(0, 0, 256, 256);
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
+const backdrop = new THREE.Mesh(
+  new THREE.PlaneGeometry(90, 56),
+  new THREE.MeshBasicMaterial({ map: makeRoomBackdrop(), depthWrite: false })
+);
+backdrop.position.set(0, 9, -17);
+scene.add(backdrop);
+
+// ── Object builders ─────────────────────────────────────────────────
+
+// Brass corner fittings on a box (the "puzzle box" hardware look).
+function addBrassCorners(group, w, h, d) {
+  const s = Math.min(w, h, d) * 0.17;
+  const cg = new THREE.BoxGeometry(s, s, s);
+  for (const sx of [-1, 1]) for (const sy of [-1, 1]) for (const sz of [-1, 1]) {
+    const c = new THREE.Mesh(cg, BRASS);
+    c.position.set(sx * (w/2 - s*0.25), sy * (h/2 - s*0.25), sz * (d/2 - s*0.25));
+    c.castShadow = true;
+    group.add(c);
+  }
+}
+
+function makeBlock(w = 1.4, h = 0.9, d = 1.4, variant = 'walnut') {
   const g = new THREE.Group();
-  const faceMat = new THREE.MeshBasicMaterial({
-    color: opts.color ?? COL_CREAM,
-    transparent: true,
-    opacity: opts.opacity ?? 0.16,
-    depthWrite: true,
-  });
-  g.add(new THREE.Mesh(geom, faceMat));
-  const edgeMat = new THREE.LineBasicMaterial({
-    color: opts.edgeColor ?? COL_GOLD,
-    transparent: true,
-    opacity: opts.edgeOpacity ?? 0.92,
-  });
-  g.add(new THREE.LineSegments(new THREE.EdgesGeometry(geom), edgeMat));
-  g.userData.faceMat = faceMat;
-  g.userData.edgeMat = edgeMat;
-  g.userData.baseGeom = geom;
+  const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), WOOD[variant]);
+  m.castShadow = true; m.receiveShadow = true;
+  g.add(m);
+  addBrassCorners(g, w, h, d);
+  g.userData.kind = 'block';
+  g.userData.dims = { w, h, d };
   return g;
 }
 
-// Fade a solid's face + edges to a target opacity multiplier (1 = as authored).
-function setSolidOpacity(solid, mult) {
-  const f = solid.userData.faceMat, e = solid.userData.edgeMat;
-  if (f) f.opacity = (f.userData?.base ?? 0.16) * mult;
-  if (e) e.opacity = (e.userData?.base ?? 0.92) * mult;
-}
-function tagBaseOpacity(solid) {
-  if (solid.userData.faceMat) solid.userData.faceMat.userData = { base: solid.userData.faceMat.opacity };
-  if (solid.userData.edgeMat) solid.userData.edgeMat.userData = { base: solid.userData.edgeMat.opacity };
-}
-
-function makeBlock(w = 1.3, h = 0.8, d = 1.3, opts = {}) {
-  const s = makeSolid(new THREE.BoxGeometry(w, h, d), opts);
-  s.userData.kind = 'block';
-  tagBaseOpacity(s);
-  return s;
+// A wooden knob lying on the desk with a brass pointer on top; turned about Y.
+function makeDial(radius = 1.5, thick = 0.6) {
+  const g = new THREE.Group();
+  const body = new THREE.Mesh(new THREE.CylinderGeometry(radius, radius, thick, 48), WOOD.oak);
+  body.castShadow = true; body.receiveShadow = true;
+  g.add(body);
+  const mark = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.1, radius * 0.62), BRASS);
+  mark.position.set(0, thick / 2 + 0.05, radius * 0.32);
+  mark.castShadow = true;
+  g.add(mark);
+  g.userData.kind = 'dial';
+  g.userData.mark = mark;
+  g.userData.thick = thick;
+  return g;
 }
 
-// A short cylinder with a gold tick on its rim — used by the rotate stage.
-function makeDial(radius = 1.4, depth = 0.5) {
-  const s = makeSolid(new THREE.CylinderGeometry(radius, radius, depth, 48), { opacity: 0.12 });
-  s.children[0].rotation.x = Math.PI / 2; // face the camera
-  s.children[1].rotation.x = Math.PI / 2;
-  const mark = new THREE.Mesh(
-    new THREE.BoxGeometry(0.12, radius * 0.5, depth + 0.06),
-    new THREE.MeshBasicMaterial({ color: COL_GOLD, transparent: true, opacity: 0.95 })
-  );
-  mark.position.y = radius * 0.72;
-  s.add(mark);
-  s.userData.kind = 'dial';
-  tagBaseOpacity(s);
-  return s;
-}
-
-// Distinct silhouettes for the "place into socket" stage.
+// Distinct wooden silhouettes for the place-into-socket stage.
 function makeShapeMesh(kind, size = 1.0) {
   let geom;
   if (kind === 'cube')      geom = new THREE.BoxGeometry(size, size, size);
-  else if (kind === 'pyr')  geom = new THREE.ConeGeometry(size * 0.7, size, 4);
+  else if (kind === 'pyr')  geom = new THREE.ConeGeometry(size * 0.72, size, 4);
   else                      geom = new THREE.CylinderGeometry(size * 0.6, size * 0.6, size, 32);
-  const s = makeSolid(geom, { opacity: 0.18 });
-  s.userData.kind = 'shape';
-  s.userData.shape = kind;
-  tagBaseOpacity(s);
-  return s;
+  const g = new THREE.Group();
+  const m = new THREE.Mesh(geom, WOOD.walnut);
+  m.castShadow = true; m.receiveShadow = true;
+  g.add(m);
+  g.userData.kind = 'shape';
+  g.userData.shape = kind;
+  g.userData.size = size;
+  return g;
 }
 
-// A thin socket outline (gold ring/box) that accepts a matching shape.
+// A recessed pad on the desk with a brass rim marking where a shape belongs.
 function makeSocket(kind, size = 1.0) {
-  let geom;
-  if (kind === 'cube')      geom = new THREE.BoxGeometry(size * 1.25, size * 1.25, 0.2);
-  else if (kind === 'pyr')  geom = new THREE.ConeGeometry(size * 0.95, 0.2, 4);
-  else                      geom = new THREE.CylinderGeometry(size * 0.85, size * 0.85, 0.2, 32);
-  const s = makeSolid(geom, { opacity: 0.05, edgeOpacity: 0.4 });
-  if (kind !== 'cube') { s.children[0].rotation.x = Math.PI / 2; s.children[1].rotation.x = Math.PI / 2; }
-  s.userData.kind = 'socket';
-  s.userData.shape = kind;
-  tagBaseOpacity(s);
-  return s;
+  const g = new THREE.Group();
+  let pad, rim;
+  if (kind === 'cyl') {
+    pad = new THREE.Mesh(new THREE.CylinderGeometry(size * 0.66, size * 0.66, 0.08, 32),
+      new THREE.MeshStandardMaterial({ color: 0x1c1108, roughness: 0.9 }));
+    rim = new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.CircleGeometry(size * 0.66, 32)),
+      new THREE.LineBasicMaterial({ color: 0xc8a24a }));
+    rim.rotation.x = -Math.PI / 2;
+  } else {
+    const seg = kind === 'pyr' ? 4 : 4;
+    pad = new THREE.Mesh(new THREE.CylinderGeometry(size * 0.78, size * 0.78, 0.08, seg),
+      new THREE.MeshStandardMaterial({ color: 0x1c1108, roughness: 0.9 }));
+    pad.rotation.y = kind === 'pyr' ? Math.PI / 4 : Math.PI / 4;
+    rim = new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.CylinderGeometry(size * 0.78, size * 0.78, 0.08, seg)),
+      new THREE.LineBasicMaterial({ color: 0xc8a24a }));
+    rim.rotation.y = pad.rotation.y;
+  }
+  pad.position.y = 0.04; pad.receiveShadow = true;
+  rim.position.y = 0.085;
+  g.add(pad, rim);
+  g.userData.kind = 'socket';
+  g.userData.shape = kind;
+  return g;
 }
 
-// Two half-boxes that start fused; the cut stage splits them apart to reveal
-// the piece hidden inside. Returns { group, left, right }.
-function makeHalfPair(w = 2.0, h = 2.0, d = 1.4) {
+// Two wooden halves fused; the cut stage splits them to reveal the piece.
+// Materials are cloned so the split-fade doesn't touch the shared wood mat.
+function makeHalfPair(w = 2.4, h = 2.0, d = 1.6) {
   const group = new THREE.Group();
-  const left  = makeSolid(new THREE.BoxGeometry(w / 2, h, d), { opacity: 0.2 });
-  const right = makeSolid(new THREE.BoxGeometry(w / 2, h, d), { opacity: 0.2 });
-  left.position.x  = -w / 4;
-  right.position.x =  w / 4;
-  tagBaseOpacity(left); tagBaseOpacity(right);
+  const mk = (sign) => {
+    const m = new THREE.Mesh(new THREE.BoxGeometry(w / 2, h, d), WOOD.walnut.clone());
+    m.position.x = sign * w / 4;
+    m.castShadow = true; m.receiveShadow = true;
+    return m;
+  };
+  const left = mk(-1), right = mk(1);
   group.add(left, right);
+  // brass seam band so the cut line reads
+  const seam = new THREE.Mesh(new THREE.BoxGeometry(0.09, h * 1.02, d * 1.02), BRASS.clone());
+  seam.position.set(0, 0, 0);
+  group.add(seam);
   group.userData.kind = 'halfpair';
   return { group, left, right };
 }
 
-// Draw a word onto a CanvasTexture so an assembled tile can reveal it.
+// Word texture (cream engraving on transparent) for the assembled pieces.
 function makeWordTexture(word) {
-  const W = 512, H = 256;
+  const W = 512, H = 320;
   const c = document.createElement('canvas');
   c.width = W; c.height = H;
   const ctx = c.getContext('2d');
   ctx.clearRect(0, 0, W, H);
-  ctx.fillStyle = '#f5ede0';
-  ctx.font = "600 120px 'Cormorant Garamond', serif";
+  ctx.fillStyle = '#f3e8d2';
+  ctx.font = "600 130px 'Cormorant Garamond', serif";
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  ctx.fillText(word, W / 2, H / 2 + 8);
+  ctx.fillText(word, W / 2, H / 2 + 6);
   const tex = new THREE.CanvasTexture(c);
   tex.colorSpace = THREE.SRGBColorSpace;
   return tex;
 }
 
-// A flat puzzle-piece tile. Abstract (blank gold-edged) while collected;
-// its word face is revealed only when seated into the assembly frame.
+// A wooden puzzle-piece tile with brass corners. Its engraved word stays
+// hidden until the piece is seated into the assembly frame.
 function makePiece(index, word) {
-  const w = 1.9, h = 1.25;
-  const s = makeSolid(new THREE.BoxGeometry(w, h, 0.18), { opacity: 0.16 });
-  s.userData.kind = 'piece';
-  s.userData.index = index;
-  s.userData.word = word || '';
-  tagBaseOpacity(s);
+  const w = 2.0, h = 1.35, d = 0.28;
+  const g = new THREE.Group();
+  const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), WOOD.oak);
+  m.castShadow = true; m.receiveShadow = true;
+  g.add(m);
+  addBrassCorners(g, w, h, d);
+  g.userData.kind = 'piece';
+  g.userData.index = index;
+  g.userData.word = word || '';
 
-  // Hidden word face (revealed on assembly).
-  const wordMat = new THREE.MeshBasicMaterial({
-    map: makeWordTexture(word || ''),
-    transparent: true,
-    opacity: 0,
-    depthWrite: false,
-  });
-  const wordPlane = new THREE.Mesh(new THREE.PlaneGeometry(w * 0.92, h * 0.92), wordMat);
-  wordPlane.position.z = 0.1;
-  s.add(wordPlane);
-  s.userData.wordMat = wordMat;
-  return s;
+  const wordMat = new THREE.MeshBasicMaterial({ map: makeWordTexture(word || ''), transparent: true, opacity: 0, depthWrite: false });
+  const wordPlane = new THREE.Mesh(new THREE.PlaneGeometry(w * 0.9, h * 0.9), wordMat);
+  wordPlane.position.z = d / 2 + 0.02;
+  g.add(wordPlane);
+  g.userData.wordMat = wordMat;
+  return g;
 }
 
 function revealPieceWord(piece, dur = 700) {
@@ -1297,12 +1405,19 @@ function revealPieceWord(piece, dur = 700) {
 }
 
 // Recursively dispose a group's geometries/materials and detach it.
+// (Shared cached materials WOOD/BRASS are left intact — only per-object
+//  geometries and one-off materials like word textures are disposed.)
+const SHARED_MATERIALS = new Set([WOOD.walnut, WOOD.oak, BRASS, CREAM_INLAY, tableMat]);
 function disposeObject3D(obj) {
   obj.traverse((o) => {
     if (o.geometry) o.geometry.dispose();
     if (o.material) {
       const mats = Array.isArray(o.material) ? o.material : [o.material];
-      for (const m of mats) { if (m.map) m.map.dispose(); m.dispose(); }
+      for (const m of mats) {
+        if (SHARED_MATERIALS.has(m)) continue;
+        if (m.map) m.map.dispose();
+        m.dispose();
+      }
     }
   });
   if (obj.parent) obj.parent.remove(obj);
@@ -1421,32 +1536,30 @@ function isOpenHand(lms) {
 
 // ═══════════════════════════════════════════════════════════════════
 //  3D interaction systems (pinch-grab, snap, slice, rotate)
-//  Depth is unreliable from one camera, so we work on the WORK_Z plane:
-//  hand x/y → world, z forced to WORK_Z. Forgiving by design.
+//  Objects live ON the desk; the hand is raycast onto the desk plane
+//  (handToTable), so we manipulate in table x/z with y as height.
+//  Forgiving by design.
 // ═══════════════════════════════════════════════════════════════════
 
-// A grabbable wraps a mesh + bookkeeping. Slots/snapping are stage-driven.
-function makeGrabbable(mesh) {
-  return { mesh, grabOffset: new THREE.Vector3(), locked: false, settled: false };
+// A grabbable wraps a mesh + bookkeeping. restY is its resting height.
+function makeGrabbable(mesh, restY) {
+  return { mesh, grabOffset: new THREE.Vector3(), locked: false, restY: restY ?? mesh.position.y };
 }
 
-// World point of the pinch (thumb-tip 4 / index-tip 8 midpoint), on WORK_Z.
-function pinchMidWorld(hand) {
+// Desk point under the pinch (thumb-tip 4 / index-tip 8 midpoint).
+function pinchMidTable(hand) {
   const lms = hand.lms;
-  const mid = { x: (lms[4].x + lms[8].x) / 2, y: (lms[4].y + lms[8].y) / 2, z: 0 };
-  const w = handToWorld(mid);
-  w.z = WORK_Z;
-  return w;
+  return handToTable({ x: (lms[4].x + lms[8].x) / 2, y: (lms[4].y + lms[8].y) / 2 });
 }
 
 // Generic pinch grab with hysteresis (grab <pinchGrab, release >pinchRelease),
-// nearest-in-plane pick, lerp follow. onRelease(grabbable, pinchPoint) lets the
-// stage decide snapping. Returns the live pinch ratio (for the debug HUD).
+// nearest-on-desk pick, lerp follow, lifts while held. onRelease(grabbable,
+// deskPoint) lets the stage decide snapping. Returns the live pinch ratio.
 function updateGrab(ctx, hand, grabbables, onRelease) {
   const lms = hand.lms;
   const ratio = pinchRatio(lms);
   const p = ctx.pinch;
-  const mid = pinchMidWorld(hand);
+  const mid = pinchMidTable(hand);
   p.lastRatio = ratio;
   p.justGrabbed = false;
 
@@ -1455,43 +1568,49 @@ function updateGrab(ctx, hand, grabbables, onRelease) {
     let best = null, bestD = CONFIG.grabRadiusWorld;
     for (const g of grabbables) {
       if (g.locked) continue;
-      const d = Math.hypot(g.mesh.position.x - mid.x, g.mesh.position.y - mid.y);
+      const d = Math.hypot(g.mesh.position.x - mid.x, g.mesh.position.z - mid.z);
       if (d < bestD) { bestD = d; best = g; }
     }
     if (best) {
       ctx.grabbed = best;
       p.justGrabbed = true;
-      best.grabOffset.set(best.mesh.position.x - mid.x, best.mesh.position.y - mid.y, 0);
+      best.grabOffset.set(best.mesh.position.x - mid.x, 0, best.mesh.position.z - mid.z);
     }
   } else if (p.active && ratio > CONFIG.pinchRelease) {
     p.active = false;
-    if (ctx.grabbed) { const g = ctx.grabbed; ctx.grabbed = null; onRelease && onRelease(g, mid); }
+    if (ctx.grabbed) {
+      const g = ctx.grabbed; ctx.grabbed = null;
+      onRelease && onRelease(g, mid);
+      // If the stage didn't lock/snap it, settle it back down onto the desk.
+      if (!g.locked) tweenVec3(g.mesh.position, new THREE.Vector3(g.mesh.position.x, g.restY, g.mesh.position.z), 220);
+    }
   }
 
   if (ctx.grabbed) {
     const g = ctx.grabbed;
     const tx = mid.x + g.grabOffset.x;
-    const ty = mid.y + g.grabOffset.y;
+    const tz = mid.z + g.grabOffset.z;
     g.mesh.position.x += (tx - g.mesh.position.x) * CONFIG.grabLerp;
-    g.mesh.position.y += (ty - g.mesh.position.y) * CONFIG.grabLerp;
-    g.mesh.position.z = WORK_Z;
+    g.mesh.position.z += (tz - g.mesh.position.z) * CONFIG.grabLerp;
+    const lift = g.restY + 0.5;   // hovers while carried
+    g.mesh.position.y += (lift - g.mesh.position.y) * CONFIG.grabLerp;
   }
   return ratio;
 }
 
 // Snap a grabbable's mesh to a target position with a short ease.
 function snapTo(grabbable, pos, dur = 240, onDone) {
-  tweenVec3(grabbable.mesh.position, pos.clone().setZ(WORK_Z), dur, easeOutCubic, onDone);
+  tweenVec3(grabbable.mesh.position, pos.clone(), dur, easeOutCubic, onDone);
 }
 
 // Slice detector: a decisive lateral swipe of the index tip across an object's
-// center-x. Forgiving — any fast crossing counts; debounced to one cut.
+// center-x (in desk space). Forgiving — any fast crossing counts; debounced.
 function makeSlicer() { return { prevX: null, cooldownUntil: 0 }; }
 function updateSlicer(slicer, hand, centerX, now) {
   if (now < slicer.cooldownUntil) return false;
   const lms = hand.lms;
   if (!(fingerExtended(lms, 5, 6, 8) || isOpenHand(lms))) { slicer.prevX = null; return false; }
-  const x = handToWorld(lms[8]).x;
+  const x = handToTable(lms[8]).x;
   if (slicer.prevX === null) { slicer.prevX = x; return false; }
   const vx = x - slicer.prevX;
   const crossed = (slicer.prevX - centerX) * (x - centerX) <= 0;
@@ -1696,10 +1815,10 @@ function renderInventory(filled) {
   wrap.classList.add('show');
 }
 
-// A world point near the top-left, where collected pieces fly to.
+// A world point high and toward the camera, where collected pieces fly off
+// to "land" in the on-screen inventory tray.
 function inventoryWorldPoint() {
-  const { w, h } = worldBounds();
-  return new THREE.Vector3(-w * 0.38, h * 0.40, WORK_Z);
+  return new THREE.Vector3(-3.6, 5.0, 4.4);
 }
 
 // ── Generic "stage solved" → collect a piece → advance ──────────────
@@ -1711,19 +1830,24 @@ function collectPieceAndAdvance(atPos, caption) {
   const filled = ctx.pieces.length + 1;
   ctx.pieces.push({ index: filled - 1 });
 
-  // A little piece mesh flies to the inventory tray, then the slot lights.
+  // A puzzle piece rises from the solve point and flies to the tray.
   const piece = makePiece(filled - 1, '');
-  piece.position.copy(atPos || new THREE.Vector3(0, 0, WORK_Z));
+  piece.position.copy(atPos || new THREE.Vector3(0, 0.5, 0));
   puzzleGroup.add(piece);
   sparkleAt(piece.position, 0.16);
-  tweenVec3(piece.position, inventoryWorldPoint(), 700, easeInOutCubic, () => {
+  const dest = inventoryWorldPoint();
+  tween({ dur: 750, ease: easeInOutCubic, onUpdate: (e) => {
+    piece.position.lerpVectors(atPos || new THREE.Vector3(0, 0.5, 0), dest, e);
+    piece.rotation.y = e * Math.PI * 2;
+    piece.scale.setScalar(1 - 0.6 * e);
+  }, onDone: () => {
     renderInventory(filled);
     renderProgress(filled);
     disposeObject3D(piece);
-  });
+  }});
 
   if (caption) showCaption(caption);
-  setTimeout(() => advanceStage(), 1400);
+  setTimeout(() => advanceStage(), 1500);
 }
 
 // ── Hub ─────────────────────────────────────────────────────────────
@@ -1846,152 +1970,52 @@ function makeRestStage(idx) {
   };
 }
 
-// S1 — Stack: pinch-drag blocks onto a column (order-forgiving snap).
+// A flat brass-rimmed target pad laid on the desk (marks "put it here").
+function makeTargetPad(size = 1.4) {
+  const g = new THREE.Group();
+  const pad = new THREE.Mesh(
+    new THREE.CylinderGeometry(size, size, 0.06, 36),
+    new THREE.MeshStandardMaterial({ color: 0x241405, roughness: 0.95 })
+  );
+  pad.position.y = 0.03; pad.receiveShadow = true;
+  const rim = new THREE.LineSegments(
+    new THREE.EdgesGeometry(new THREE.CircleGeometry(size, 36)),
+    new THREE.LineBasicMaterial({ color: 0xc8a24a })
+  );
+  rim.rotation.x = -Math.PI / 2; rim.position.y = 0.07;
+  g.add(pad, rim);
+  return g;
+}
+
+// S1 — Stack: pinch-drag wooden blocks onto a base pad to build a tower.
 const stackStage = {
   id: 'stack', kind: 'puzzle', physics: 'ambient', hint: CONFIG.stack.hint,
   enter() {
     clearPuzzleGroup();
     const sc = ctx.stageScratch;
     const n = CONFIG.stack.count;
-    const { w } = worldBounds();
-    const colX = 0, baseY = -2.0, bh = 0.85;
-    sc.colX = colX;
+    const bw = 1.5, bh = 0.8;
+    const colX = 0, colZ = 0.6;
+    sc.colX = colX; sc.colZ = colZ;
     sc.slots = [];
-    for (let i = 0; i < n; i++) sc.slots.push({ pos: new THREE.Vector3(colX, baseY + i * bh, WORK_Z), filled: false });
+    for (let i = 0; i < n; i++)
+      sc.slots.push({ pos: new THREE.Vector3(colX, bh / 2 + i * bh, colZ), filled: false });
+
+    const pad = makeTargetPad(bw * 0.78);
+    pad.position.set(colX, 0, colZ);
+    puzzleGroup.add(pad);
+
     sc.grabbables = [];
+    // spawn within the visible desk band (≈ ±1.7 at z≈1, narrower toward back)
+    const spots = [[-1.5, 1.6], [1.5, 1.6], [-1.2, 0.2], [1.2, 0.2]];
     for (let i = 0; i < n; i++) {
-      const b = makeBlock(1.3, bh * 0.92, 1.3);
-      b.position.set((i - (n - 1) / 2) * (w * 0.16) - w * 0.18, 1.4 - i * 0.5, WORK_Z);
+      const b = makeBlock(bw, bh, bw, i % 2 ? 'oak' : 'walnut');
+      const [sx, sz] = spots[i % spots.length];
+      b.position.set(sx, bh / 2, sz);
+      b.rotation.y = (Math.random() - 0.5) * 0.5;
       puzzleGroup.add(b);
-      sc.grabbables.push(makeGrabbable(b));
+      sc.grabbables.push(makeGrabbable(b, bh / 2));
     }
-    sc.placed = 0;
-    // faint ghost of the finished column
-    const ghost = makeBlock(1.36, bh * n, 1.36, { opacity: 0.04, edgeOpacity: 0.18 });
-    ghost.position.set(colX, baseY + (n - 1) * bh / 2, WORK_Z - 0.2);
-    puzzleGroup.add(ghost);
-  },
-  update() {
-    const sc = ctx.stageScratch;
-    if (sc.solved) return;
-    if (autoSolveDue()) { // never stuck: drop remaining blocks into the column
-      for (const g of sc.grabbables) {
-        if (g.locked) continue;
-        const slot = sc.slots.find((s) => !s.filled);
-        if (slot) { slot.filled = true; g.locked = true; sc.placed++; snapTo(g, slot.pos); }
-      }
-    }
-    if (hands.length >= 1) {
-      updateGrab(ctx, hands[0], sc.grabbables, (g, p) => {
-        if (g.locked) return;
-        if (Math.abs(g.mesh.position.x - sc.colX) < CONFIG.snapTolWorld * 1.6) {
-          const slot = sc.slots.find((s) => !s.filled);
-          if (slot) { slot.filled = true; g.locked = true; sc.placed++; sparkleAt(slot.pos, 0.1); snapTo(g, slot.pos); }
-        }
-      });
-    }
-    if (sc.placed >= CONFIG.stack.count) {
-      collectPieceAndAdvance(sc.slots[sc.slots.length - 1].pos.clone());
-    }
-  },
-  exit() {},
-};
-
-// S2 — Cut: swipe across the sealed object to split it and reveal the piece.
-const cutStage = {
-  id: 'cut', kind: 'puzzle', physics: 'ambient', hint: CONFIG.cut.hint,
-  enter() {
-    clearPuzzleGroup();
-    const sc = ctx.stageScratch;
-    const hp = makeHalfPair(2.4, 2.2, 1.4);
-    hp.group.position.set(0, 0, WORK_Z);
-    puzzleGroup.add(hp.group);
-    sc.halves = hp;
-    sc.slicer = makeSlicer();
-  },
-  update() {
-    const sc = ctx.stageScratch;
-    if (sc.solved) return;
-    let cut = false;
-    if (hands.length >= 1 && pastGrace()) cut = updateSlicer(sc.slicer, hands[0], 0, performance.now());
-    if (cut || autoSolveDue()) {
-      // split the halves apart and fade them out
-      const L = sc.halves.left, R = sc.halves.right;
-      tweenVec3(L.position, new THREE.Vector3(L.position.x - 2.4, -3.5, WORK_Z), 900, easeInCubic);
-      tweenVec3(R.position, new THREE.Vector3(R.position.x + 2.4, -3.5, WORK_Z), 900, easeInCubic);
-      tween({ dur: 700, onUpdate: (e) => { setSolidOpacity(L, 1 - e); setSolidOpacity(R, 1 - e); } });
-      sparkleAt(new THREE.Vector3(0, 0, WORK_Z), 0.18);
-      collectPieceAndAdvance(new THREE.Vector3(0, 0, WORK_Z));
-    }
-  },
-  exit() {},
-};
-
-// S3 — Rotate: turn your hand to bring the dial's mark to the top notch.
-const rotateStage = {
-  id: 'rotate', kind: 'puzzle', physics: 'ambient', hint: CONFIG.rotate.hint,
-  enter() {
-    clearPuzzleGroup();
-    const sc = ctx.stageScratch;
-    const dial = makeDial(1.5, 0.5);
-    dial.position.set(0, 0, WORK_Z);
-    dial.rotation.z = Math.PI * (0.5 + Math.random()); // start misaligned
-    puzzleGroup.add(dial);
-    // static target notch at the top
-    const notch = new THREE.Mesh(
-      new THREE.BoxGeometry(0.16, 0.5, 0.1),
-      new THREE.MeshBasicMaterial({ color: COL_CREAM, transparent: true, opacity: 0.5 })
-    );
-    notch.position.set(0, 1.95, WORK_Z);
-    puzzleGroup.add(notch);
-    sc.dial = dial;
-    sc.hold = 0;
-  },
-  update() {
-    const sc = ctx.stageScratch;
-    if (sc.solved) return;
-    if (hands.length >= 1) {
-      const target = handRoll(hands[0]) - Math.PI / 2;  // upright hand → 0
-      sc.dial.rotation.z += (target - sc.dial.rotation.z) * 0.18;
-    }
-    // angular error to nearest aligned position (mark up = rotation.z ≈ 0)
-    let err = Math.atan2(Math.sin(sc.dial.rotation.z), Math.cos(sc.dial.rotation.z));
-    const aligned = Math.abs(err) < CONFIG.rotateTolRad;
-    sc.dial.userData.edgeMat.opacity = 0.5 + 0.45 * (aligned ? 1 : Math.max(0, 1 - Math.abs(err)));
-    if (aligned && pastGrace()) sc.hold++; else sc.hold = Math.max(0, sc.hold - 1);
-    if (sc.hold > CONFIG.holdFrames || autoSolveDue()) {
-      tween({ dur: 400, onUpdate: (e) => { sc.dial.rotation.z *= (1 - e); } });
-      sparkleAt(new THREE.Vector3(0, 0, WORK_Z), 0.14);
-      collectPieceAndAdvance(new THREE.Vector3(0, 0, WORK_Z));
-    }
-  },
-  exit() {},
-};
-
-// S4 — Place: drag each shape into its matching socket.
-const placeStage = {
-  id: 'place', kind: 'puzzle', physics: 'ambient', hint: CONFIG.place.hint,
-  enter() {
-    clearPuzzleGroup();
-    const sc = ctx.stageScratch;
-    const kinds = ['cube', 'pyr', 'cyl'];
-    const { w } = worldBounds();
-    sc.sockets = [];
-    kinds.forEach((k, i) => {
-      const sock = makeSocket(k, 1.0);
-      sock.position.set((i - 1) * (w * 0.22), -1.8, WORK_Z - 0.1);
-      sock.userData.filled = false;
-      puzzleGroup.add(sock);
-      sc.sockets.push(sock);
-    });
-    sc.grabbables = [];
-    const order = kinds.slice().sort(() => Math.random() - 0.5);
-    order.forEach((k, i) => {
-      const s = makeShapeMesh(k, 0.9);
-      s.position.set((i - 1) * (w * 0.22), 1.6, WORK_Z);
-      puzzleGroup.add(s);
-      sc.grabbables.push(makeGrabbable(s));
-    });
     sc.placed = 0;
   },
   update() {
@@ -2000,30 +2024,168 @@ const placeStage = {
     if (autoSolveDue()) {
       for (const g of sc.grabbables) {
         if (g.locked) continue;
-        const sock = sc.sockets.find((s) => !s.userData.filled && s.userData.shape === g.mesh.userData.shape);
-        if (sock) { sock.userData.filled = true; g.locked = true; sc.placed++; snapTo(g, sock.position.clone().setZ(WORK_Z)); }
+        const slot = sc.slots.find((s) => !s.filled);
+        if (slot) { slot.filled = true; g.locked = true; sc.placed++; snapTo(g, slot.pos, 320); }
       }
     }
     if (hands.length >= 1) {
-      updateGrab(ctx, hands[0], sc.grabbables, (g, p) => {
+      updateGrab(ctx, hands[0], sc.grabbables, (g) => {
         if (g.locked) return;
-        const sock = sc.sockets.find((s) =>
-          !s.userData.filled && s.userData.shape === g.mesh.userData.shape &&
-          Math.hypot(s.position.x - g.mesh.position.x, s.position.y - g.mesh.position.y) < CONFIG.snapTolWorld * 1.4);
-        if (sock) {
-          sock.userData.filled = true; g.locked = true; sc.placed++;
-          sparkleAt(sock.position, 0.1);
-          snapTo(g, sock.position.clone().setZ(WORK_Z));
+        const near = Math.hypot(g.mesh.position.x - sc.colX, g.mesh.position.z - sc.colZ) < CONFIG.snapTolWorld * 1.4;
+        if (near) {
+          const slot = sc.slots.find((s) => !s.filled);
+          if (slot) { slot.filled = true; g.locked = true; sc.placed++; tween({ dur: 300, ease: easeOutCubic, onUpdate: () => {} }); snapTo(g, slot.pos, 280, () => sparkleAt(slot.pos, 0.08)); }
         }
       });
     }
-    if (sc.placed >= 3) collectPieceAndAdvance(new THREE.Vector3(0, -1.8, WORK_Z));
+    if (sc.placed >= CONFIG.stack.count) {
+      collectPieceAndAdvance(sc.slots[sc.slots.length - 1].pos.clone(), CONFIG.stack.done);
+    }
   },
   exit() {},
 };
 
-// A — Assembly: drag the pieces into a frame; the assembled puzzle spells
-// the ask, then hands to the question landing.
+// S2 — Cut: swipe across the wooden case to split it and reveal the piece.
+const cutStage = {
+  id: 'cut', kind: 'puzzle', physics: 'ambient', hint: CONFIG.cut.hint,
+  enter() {
+    clearPuzzleGroup();
+    const sc = ctx.stageScratch;
+    const h = 1.7;
+    const hp = makeHalfPair(2.6, h, 1.7);
+    hp.group.position.set(0, h / 2, -0.2);
+    puzzleGroup.add(hp.group);
+    sc.halves = hp;
+    sc.baseY = h / 2;
+    sc.slicer = makeSlicer();
+  },
+  update() {
+    const sc = ctx.stageScratch;
+    if (sc.solved) return;
+    let cut = false;
+    if (hands.length >= 1 && pastGrace()) cut = updateSlicer(sc.slicer, hands[0], 0, performance.now());
+    if (cut || autoSolveDue()) {
+      const L = sc.halves.left, R = sc.halves.right, S = sc.halves.group.children[2];
+      tweenVec3(L.position, new THREE.Vector3(L.position.x - 2.6, sc.baseY - 0.2, 0), 900, easeInCubic);
+      tweenVec3(R.position, new THREE.Vector3(R.position.x + 2.6, sc.baseY - 0.2, 0), 900, easeInCubic);
+      tween({ dur: 800, onUpdate: (e) => {
+        L.material.transparent = R.material.transparent = true;
+        L.material.opacity = R.material.opacity = 1 - e;
+        if (S) { S.material.transparent = true; S.material.opacity = 1 - e; }
+      }});
+      sparkleAt(new THREE.Vector3(0, sc.baseY, -0.2), 0.2);
+      collectPieceAndAdvance(new THREE.Vector3(0, sc.baseY, -0.2), CONFIG.cut.done);
+    }
+  },
+  exit() {},
+};
+
+// S3 — Rotate: turn your hand to point the dial's mark at the brass notch.
+const rotateStage = {
+  id: 'rotate', kind: 'puzzle', physics: 'ambient', hint: CONFIG.rotate.hint,
+  enter() {
+    clearPuzzleGroup();
+    const sc = ctx.stageScratch;
+    const dial = makeDial(1.6, 0.55);
+    dial.position.set(0, 0.275, -0.3);
+    dial.rotation.y = Math.PI * (0.6 + Math.random()); // start misaligned
+    puzzleGroup.add(dial);
+
+    // Glow ring under the dial brightens as the mark lines up.
+    const ringMat = new THREE.MeshBasicMaterial({ color: 0xffcf85, transparent: true, opacity: 0.0 });
+    const ring = new THREE.Mesh(new THREE.RingGeometry(1.7, 2.0, 40), ringMat);
+    ring.rotation.x = -Math.PI / 2; ring.position.set(0, 0.02, -0.3);
+    puzzleGroup.add(ring);
+
+    // Static brass notch on the desk in front (+z) — the target direction.
+    const notch = new THREE.Mesh(new THREE.ConeGeometry(0.22, 0.5, 4), BRASS);
+    notch.rotation.x = Math.PI; notch.position.set(0, 0.1, 1.5);
+    notch.castShadow = true;
+    puzzleGroup.add(notch);
+
+    sc.dial = dial; sc.ring = ring; sc.ringMat = ringMat; sc.hold = 0;
+  },
+  update() {
+    const sc = ctx.stageScratch;
+    if (sc.solved) return;
+    if (hands.length >= 1) {
+      const target = -(handRoll(hands[0]) - Math.PI / 2); // upright hand → mark toward +z
+      let d = target - sc.dial.rotation.y;
+      d = Math.atan2(Math.sin(d), Math.cos(d));
+      sc.dial.rotation.y += d * 0.18;
+    }
+    const err = Math.atan2(Math.sin(sc.dial.rotation.y), Math.cos(sc.dial.rotation.y));
+    const aligned = Math.abs(err) < CONFIG.rotateTolRad;
+    sc.ringMat.opacity = aligned ? 0.85 : Math.max(0, 0.5 - Math.abs(err) * 0.25);
+    if (aligned && pastGrace()) sc.hold++; else sc.hold = Math.max(0, sc.hold - 1);
+    if (sc.hold > CONFIG.holdFrames || autoSolveDue()) {
+      const from = sc.dial.rotation.y;
+      tween({ dur: 400, onUpdate: (e) => { sc.dial.rotation.y = from * (1 - e); } });
+      sparkleAt(new THREE.Vector3(0, 0.4, -0.3), 0.16);
+      collectPieceAndAdvance(new THREE.Vector3(0, 0.4, -0.3), CONFIG.rotate.done);
+    }
+  },
+  exit() {},
+};
+
+// S4 — Place: drag each wooden shape onto its matching socket pad.
+const placeStage = {
+  id: 'place', kind: 'puzzle', physics: 'ambient', hint: CONFIG.place.hint,
+  enter() {
+    clearPuzzleGroup();
+    const sc = ctx.stageScratch;
+    const kinds = ['cube', 'pyr', 'cyl'];
+    const size = 0.95;
+    sc.size = size;
+    sc.sockets = [];
+    kinds.forEach((k, i) => {
+      const sock = makeSocket(k, size);
+      sock.position.set((i - 1) * 1.8, 0, -0.4);   // back row, within view
+      sock.userData.filled = false;
+      puzzleGroup.add(sock);
+      sc.sockets.push(sock);
+    });
+    sc.grabbables = [];
+    const order = kinds.slice().sort(() => Math.random() - 0.5);
+    order.forEach((k, i) => {
+      const s = makeShapeMesh(k, size);
+      s.position.set((i - 1) * 1.5, size / 2, 1.7);  // front row, within view
+      puzzleGroup.add(s);
+      sc.grabbables.push(makeGrabbable(s, size / 2));
+    });
+    sc.placed = 0;
+  },
+  update() {
+    const sc = ctx.stageScratch;
+    if (sc.solved) return;
+    const drop = (g, sock) => {
+      sock.userData.filled = true; g.locked = true; sc.placed++;
+      const p = new THREE.Vector3(sock.position.x, sc.size / 2, sock.position.z);
+      snapTo(g, p, 260, () => sparkleAt(p, 0.08));
+    };
+    if (autoSolveDue()) {
+      for (const g of sc.grabbables) {
+        if (g.locked) continue;
+        const sock = sc.sockets.find((s) => !s.userData.filled && s.userData.shape === g.mesh.userData.shape);
+        if (sock) drop(g, sock);
+      }
+    }
+    if (hands.length >= 1) {
+      updateGrab(ctx, hands[0], sc.grabbables, (g) => {
+        if (g.locked) return;
+        const sock = sc.sockets.find((s) =>
+          !s.userData.filled && s.userData.shape === g.mesh.userData.shape &&
+          Math.hypot(s.position.x - g.mesh.position.x, s.position.z - g.mesh.position.z) < CONFIG.snapTolWorld * 1.3);
+        if (sock) drop(g, sock);
+      });
+    }
+    if (sc.placed >= 3) collectPieceAndAdvance(new THREE.Vector3(0, 0.5, -0.8), CONFIG.place.done);
+  },
+  exit() {},
+};
+
+// A — Assembly: drag the wooden pieces (lying flat, word-side up) into the
+// row of frame pads; the assembled tiles spell the ask → question landing.
 const assemblyStage = {
   id: 'assembly', kind: 'assembly', physics: 'ambient', hint: CONFIG.assembly.hint,
   enter() {
@@ -2032,28 +2194,47 @@ const assemblyStage = {
     document.getElementById('stage-assembly').style.display = 'block';
     document.getElementById('assembly-hint').textContent = CONFIG.assembly.hint;
     setTimeout(() => document.getElementById('assembly-hint').classList.add('show'), CONFIG.hintDelayMs);
+
     const sc = ctx.stageScratch;
     const words = CONFIG.ask.replace(/\n/g, ' ').split(/\s+/).filter(Boolean);
     sc.words = words;
-    const { w } = worldBounds();
     const n = words.length;
-    const span = Math.min(w * 0.8, n * 2.1);
+
+    // Scale tiles down so the whole row fits the visible desk; place the row
+    // toward the back (rowZ) where the camera sees a wider span.
+    const sceneScale = Math.min(1, 3 / n);
+    const tileW = 2.0 * sceneScale, tileD = 1.35 * sceneScale;
+    const pieceY = 0.14 * sceneScale;
+    const rowZ = -2.2;
+    const span = Math.min(4.6, n * (tileW + 0.25));
     const step = n > 1 ? span / (n - 1) : 0;
+    const padMat = new THREE.MeshStandardMaterial({ color: 0x241405, roughness: 0.95 });
     sc.slots = [];
     sc.grabbables = [];
+
     for (let i = 0; i < n; i++) {
       const fx = (n === 1) ? 0 : -span / 2 + i * step;
-      // frame slot outline
-      const frame = makeSolid(new THREE.BoxGeometry(1.95, 1.3, 0.12), { opacity: 0.03, edgeOpacity: 0.22 });
-      frame.position.set(fx, 0.2, WORK_Z - 0.15);
+      // recessed frame pad on the desk
+      const frame = new THREE.Group();
+      const padGeo = new THREE.BoxGeometry(tileW, 0.06, tileD);
+      const pad = new THREE.Mesh(padGeo, padMat);
+      pad.position.y = 0.03; pad.receiveShadow = true;
+      const rim = new THREE.LineSegments(new THREE.EdgesGeometry(padGeo),
+        new THREE.LineBasicMaterial({ color: 0xc8a24a }));
+      rim.position.y = 0.06;
+      frame.add(pad, rim);
+      frame.position.set(fx, 0, rowZ);
       puzzleGroup.add(frame);
-      sc.slots.push({ pos: new THREE.Vector3(fx, 0.2, WORK_Z), filled: false });
-      // scattered piece showing its word
+      sc.slots.push({ pos: new THREE.Vector3(fx, pieceY, rowZ), filled: false });
+
+      // piece lying flat (word face up), scattered toward the front of the desk
       const piece = makePiece(i, words[i]);
-      const angle = (i / n) * Math.PI * 2;
-      piece.position.set(Math.cos(angle) * w * 0.3, -2.2 + Math.sin(angle) * 1.2, WORK_Z);
+      piece.scale.setScalar(sceneScale);
+      piece.rotation.x = -Math.PI / 2;     // word face (+z) → up (+y)
+      const fxFront = (n === 1) ? 0 : -1.6 + (i / Math.max(1, n - 1)) * 3.2;
+      piece.position.set(fxFront, pieceY, 1.5 + (i % 2) * 0.5);
       puzzleGroup.add(piece);
-      sc.grabbables.push(makeGrabbable(piece));
+      sc.grabbables.push(makeGrabbable(piece, pieceY));
     }
     sc.seated = 0;
   },
@@ -2064,30 +2245,29 @@ const assemblyStage = {
       for (const g of sc.grabbables) {
         if (g.locked) continue;
         const slot = sc.slots.find((s) => !s.filled);
-        if (slot) { slot.filled = true; g.locked = true; sc.seated++; snapTo(g, slot.pos); }
+        if (slot) { slot.filled = true; g.locked = true; sc.seated++; snapTo(g, slot.pos, 320); }
       }
     }
     if (hands.length >= 1 && !sc.solving) {
-      updateGrab(ctx, hands[0], sc.grabbables, (g, p) => {
+      updateGrab(ctx, hands[0], sc.grabbables, (g) => {
         if (g.locked) return;
-        let best = null, bestD = CONFIG.snapTolWorld * 1.8;
+        let best = null, bestD = CONFIG.snapTolWorld * 1.7;
         for (const s of sc.slots) {
           if (s.filled) continue;
-          const d = Math.hypot(s.pos.x - g.mesh.position.x, s.pos.y - g.mesh.position.y);
+          const d = Math.hypot(s.pos.x - g.mesh.position.x, s.pos.z - g.mesh.position.z);
           if (d < bestD) { bestD = d; best = s; }
         }
-        if (best) { best.filled = true; g.locked = true; sc.seated++; sparkleAt(best.pos, 0.1); snapTo(g, best.pos); }
+        if (best) { best.filled = true; g.locked = true; sc.seated++; snapTo(g, best.pos, 260, () => sparkleAt(best.pos, 0.08)); }
       });
     }
     if (sc.seated >= sc.slots.length && !sc.solving) {
       sc.solving = true;
-      // reveal each word, then the lead-in, then hand to the question
       for (const g of sc.grabbables) revealPieceWord(g.mesh, 800);
-      sparkleAt(new THREE.Vector3(0, 0.2, WORK_Z), 0.14);
+      sparkleAt(new THREE.Vector3(0, 0.3, -0.6), 0.16);
       const lead = document.getElementById('assembly-leadin');
       lead.textContent = CONFIG.leadIn;
-      setTimeout(() => lead.classList.add('show'), 700);
-      setTimeout(() => { sc.done = true; lead.classList.remove('show'); enterQuestion(); }, 4200);
+      setTimeout(() => lead.classList.add('show'), 900);
+      setTimeout(() => { sc.done = true; lead.classList.remove('show'); enterQuestion(); }, 4600);
     }
   },
   exit() {
@@ -2308,9 +2488,9 @@ function logicQuestion() {
   const elapsedMs = performance.now() - ctx.questionShownAt;
   const t = elapsedMs / 1000;
 
-  // A heart breathes at center-screen behind the question.
-  const breath = 0.85 + 0.08 * Math.sin(t * 1.8);
-  setHeartTargets(new THREE.Vector3(0, -0.6, 0), 1.1 * breath);
+  // A heart of warm motes breathes in the air above the desk, facing the camera.
+  const breath = 1.5 + 0.12 * Math.sin(t * 1.8);
+  setHeartTargets(new THREE.Vector3(0, 3.6, 1.5), breath);
 
   // Reading grace period — let her actually read the question first
   const readingGraceMs = 4200;
@@ -2339,18 +2519,18 @@ function logicCelebration() {
   const beat = Math.floor(elapsed / 4);
   if (ctx.lastBeat !== beat) {
     ctx.lastBeat = beat;
-    const cx = (Math.random() - 0.5) * 2.5;
-    const cy = -2.2;
-    const startCenter = new THREE.Vector3(cx, cy, (Math.random() - 0.5) * 0.5);
+    const cx = (Math.random() - 0.5) * 3.0;
+    const cy = 0.6;   // rise up from just above the desk
+    const startCenter = new THREE.Vector3(cx, cy, 1.0 + (Math.random() - 0.5) * 0.6);
     const subset = Math.floor(N * 0.35);
-    const pts = generateHeartPositions(subset, 0.55, startCenter);
+    const pts = generateHeartPositions(subset, 0.7, startCenter);
     for (let i = 0; i < subset; i++) {
       const idx = Math.floor(Math.random() * N);
       alive[idx] = 1;
       targets[idx*3]   = pts[i].x;
-      targets[idx*3+1] = pts[i].y + 4.5;
+      targets[idx*3+1] = pts[i].y + 6.0;
       targets[idx*3+2] = pts[i].z;
-      velocities[idx*3+1] += 0.02;
+      velocities[idx*3+1] += 0.03;
     }
     particleGeom.attributes.aAlive.needsUpdate = true;
   }
