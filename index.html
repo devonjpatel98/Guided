@@ -887,20 +887,30 @@ const CONFIG = {
   closing: "okay. that's that.",                    // [OPTIONAL — personalize] after she says yes
 
   // ── Pacing / forgiveness ──────────────────────────────────────────
-  restMs: 4500,           // hands-down rest beat duration (tap to skip)
-  graceMs: 1200,          // ignore input briefly after a stage starts
-  hintDelayMs: 6000,      // when the gold hint fades in (~5–7s)
-  autoSolveMs: 16000,     // never-stuck: gently auto-complete a stage after this
-  holdFrames: 60,         // generic aligned/placed confirm hold (~1s @ 60fps)
+  // Unhurried, sandbox-y: nothing rushes you; the auto-solve is a far-off
+  // safety net rather than a quick takeover.
+  restMs: 6000,           // hands-down rest beat duration (tap to skip)
+  graceMs: 1500,          // ignore input briefly after a stage starts
+  hintDelayMs: 7000,      // when the gold hint fades in
+  autoSolveMs: 45000,     // never-stuck safety net (long — let her play)
+  winDwellMs: 3400,       // linger after solving before moving on
+  holdFrames: 75,         // generic aligned/placed confirm hold (~1.25s @ 60fps)
 
-  // ── Interaction thresholds (forgiving) ────────────────────────────
+  // ── Interaction (weighty / sandbox feel) ──────────────────────────
   pinchGrab: 0.45,        // grab when pinchRatio < this
   pinchRelease: 0.60,     // release when pinchRatio > this (hysteresis)
-  grabRadiusWorld: 2.0,   // how close a pinch must be to latch an object
-  grabLerp: 0.4,          // held-object follow smoothing (higher = snappier)
-  snapTolWorld: 1.6,      // snap-to-slot tolerance (generous)
+  grabRadiusWorld: 2.2,   // how close a pinch must be to latch an object
+  // Held objects follow on a spring so they carry weight + momentum
+  // (lower stiffness = heavier/laggier; higher damping = floatier).
+  grabStiffness: 0.17,
+  grabDamping: 0.82,
+  carryLift: 0.45,        // how high a carried object hovers off the desk
+  snapTolWorld: 1.5,      // snap-to-slot tolerance (generous)
+  snapMs: 750,            // gentle glide when a piece settles into a slot
+  dropMs: 480,            // soft set-down when released away from a slot
   sliceSpeed: 0.14,       // world-x speed of a swipe that counts as a cut
-  rotateTolRad: 0.32,     // ~18° alignment tolerance for the dial
+  rotateTolRad: 0.34,     // alignment tolerance for the dial
+  rotateLerp: 0.12,       // dial follow (lower = heavier turn)
 
   // ── Per-stage content (generic; works out of the box) ─────────────
   stack:    { count: 3, hint: "pinch a block, set it on the stack.", done: "nice and steady." },
@@ -1462,17 +1472,17 @@ function updateHandCursor() {
   handCursor.position.set(p.x, 0.08, p.z);
 
   const pinching = ctx.pinch.active;
-  let target = pinching ? 0.82 : 1.0;          // tightens a touch when gripping
+  let target = pinching ? 0.86 : 1.0;          // eases tighter when gripping
   let s = handCursor.scale.x || 1;
-  if (ctx.pinch.justGrabbed) s = 1.2;          // quick pop on latch
-  s += (target - s) * 0.3;
+  if (ctx.pinch.justGrabbed) s = 1.12;         // soft swell on latch
+  s += (target - s) * 0.16;
   handCursor.scale.set(s, s, s);
 
   cursorRingMat.color.setHex(pinching ? 0xb98a2a : 0x3b2c1c);
   cursorRingMat.opacity = pinching ? 1.0 : 0.72;
   cursorDotMat.color.setHex(pinching ? 0xfff3d8 : 0x3b2c1c);
-  cursorFillMat.opacity += ((pinching ? 0.62 : 0.0) - cursorFillMat.opacity) * 0.4;
-  cursorGlowMat.opacity += ((pinching ? 0.5 : 0.0) - cursorGlowMat.opacity) * 0.3;
+  cursorFillMat.opacity += ((pinching ? 0.62 : 0.0) - cursorFillMat.opacity) * 0.2;
+  cursorGlowMat.opacity += ((pinching ? 0.5 : 0.0) - cursorGlowMat.opacity) * 0.16;
 
   // Highlight the held object with a gold ring on the desk beneath it.
   if (ctx.grabbed) {
@@ -1601,7 +1611,7 @@ function isOpenHand(lms) {
 
 // A grabbable wraps a mesh + bookkeeping. restY is its resting height.
 function makeGrabbable(mesh, restY) {
-  return { mesh, grabOffset: new THREE.Vector3(), locked: false, restY: restY ?? mesh.position.y };
+  return { mesh, grabOffset: new THREE.Vector3(), vel: new THREE.Vector3(), locked: false, restY: restY ?? mesh.position.y };
 }
 
 // Desk point under the pinch (thumb-tip 4 / index-tip 8 midpoint).
@@ -1632,6 +1642,7 @@ function updateGrab(ctx, hand, grabbables, onRelease) {
     if (best) {
       ctx.grabbed = best;
       p.justGrabbed = true;
+      best.vel.set(0, 0, 0);
       best.grabOffset.set(best.mesh.position.x - mid.x, 0, best.mesh.position.z - mid.z);
     }
   } else if (p.active && ratio > CONFIG.pinchRelease) {
@@ -1639,26 +1650,31 @@ function updateGrab(ctx, hand, grabbables, onRelease) {
     if (ctx.grabbed) {
       const g = ctx.grabbed; ctx.grabbed = null;
       onRelease && onRelease(g, mid);
-      // If the stage didn't lock/snap it, settle it back down onto the desk.
-      if (!g.locked) tweenVec3(g.mesh.position, new THREE.Vector3(g.mesh.position.x, g.restY, g.mesh.position.z), 220);
+      // If the stage didn't lock/snap it, gently set it back down where it is
+      // (it stays grabbable, so you can keep playing with it).
+      if (!g.locked) tweenVec3(g.mesh.position, new THREE.Vector3(g.mesh.position.x, g.restY, g.mesh.position.z), CONFIG.dropMs);
     }
   }
 
   if (ctx.grabbed) {
     const g = ctx.grabbed;
-    const tx = mid.x + g.grabOffset.x;
-    const tz = mid.z + g.grabOffset.z;
-    g.mesh.position.x += (tx - g.mesh.position.x) * CONFIG.grabLerp;
-    g.mesh.position.z += (tz - g.mesh.position.z) * CONFIG.grabLerp;
-    const lift = g.restY + 0.5;   // hovers while carried
-    g.mesh.position.y += (lift - g.mesh.position.y) * CONFIG.grabLerp;
+    // Spring toward the hand so the object carries weight + a little swing,
+    // rather than rigidly snapping to the cursor.
+    const k = CONFIG.grabStiffness, damp = CONFIG.grabDamping;
+    const lift = g.restY + CONFIG.carryLift;
+    g.vel.x += ((mid.x + g.grabOffset.x) - g.mesh.position.x) * k;
+    g.vel.y += (lift - g.mesh.position.y) * k;
+    g.vel.z += ((mid.z + g.grabOffset.z) - g.mesh.position.z) * k;
+    g.vel.multiplyScalar(damp);
+    g.mesh.position.add(g.vel);
   }
   return ratio;
 }
 
-// Snap a grabbable's mesh to a target position with a short ease.
-function snapTo(grabbable, pos, dur = 240, onDone) {
-  tweenVec3(grabbable.mesh.position, pos.clone(), dur, easeOutCubic, onDone);
+// Glide a grabbable's mesh to a target position with a soft settle.
+function snapTo(grabbable, pos, dur, onDone) {
+  if (grabbable.vel) grabbable.vel.set(0, 0, 0);
+  tweenVec3(grabbable.mesh.position, pos.clone(), CONFIG.snapMs, easeInOutCubic, onDone);
 }
 
 // Slice detector: a decisive lateral swipe of the index tip across an object's
@@ -1906,7 +1922,7 @@ function collectPieceAndAdvance(atPos, caption) {
   }});
 
   if (caption) showCaption(caption);
-  setTimeout(() => advanceStage(), 1900);
+  setTimeout(() => advanceStage(), CONFIG.winDwellMs);
 }
 
 // ── Hub ─────────────────────────────────────────────────────────────
@@ -2009,7 +2025,7 @@ const introStage = {
     const elapsed = performance.now() - sc.at;
     let pinch = false;
     for (const h of hands) if (isPinching(h.lms)) { pinch = true; break; }
-    const advance = elapsed > 4200 || (pinch && elapsed > 700);
+    const advance = elapsed > 5200 || (pinch && elapsed > 900);
     if (advance) {
       sc.i++;
       if (sc.i >= CONFIG.intro.length) { hideCaption(); advanceStage(); return; }
@@ -2184,7 +2200,7 @@ const rotateStage = {
       const target = -(handRoll(hands[0]) - Math.PI / 2); // upright hand → mark toward +z
       let d = target - sc.dial.rotation.y;
       d = Math.atan2(Math.sin(d), Math.cos(d));
-      sc.dial.rotation.y += d * 0.18;
+      sc.dial.rotation.y += d * CONFIG.rotateLerp;
     }
     const err = Math.atan2(Math.sin(sc.dial.rotation.y), Math.cos(sc.dial.rotation.y));
     const aligned = Math.abs(err) < CONFIG.rotateTolRad;
